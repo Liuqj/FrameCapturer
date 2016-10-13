@@ -2,4 +2,4 @@
 
 目前支持了 CPU 的 Stack Blur 和 GPU 的 Gaussian Blur。
 
- ![Gaussian Blur](https://github.com/nswutong/ScreenCapture/raw/master/Intermediate/Test.png)
+ ![Gaussian Blur](https://raw.githubusercontent.com/nswutong/ScreenCapture/master/Intermediate/Test.png)
