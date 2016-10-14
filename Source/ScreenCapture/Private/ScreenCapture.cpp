@@ -140,7 +140,7 @@ void StackBlurJob(uint8* src,
 			sp = radius;
 			xp = radius;
 			if (xp > wm)
-			{ 
+			{
 				xp = wm;
 			}
 			src_ptr = src + 4 * (xp + y * w); // img.pix_ptr(xp, y);
@@ -161,7 +161,7 @@ void StackBlurJob(uint8* src,
 				sum_a -= sum_out_a;
 
 				stack_start = sp + div - radius;
-				if (stack_start >= div) 
+				if (stack_start >= div)
 				{
 					stack_start -= div;
 				}
@@ -437,85 +437,59 @@ void FScreenCaptureModule::OnSlateWindowRendered_ScreenCaptureWithStackBlur(SWin
 	}
 
 	static const FName RendererModuleName("Renderer");
-	IRendererModule& RendererModule = FModuleManager::GetModuleChecked<IRendererModule>(RendererModuleName);
+	IRendererModule* RendererModule = &FModuleManager::GetModuleChecked<IRendererModule>(RendererModuleName);
 
-	struct FCopyVideoFrame
-	{
-		FViewportRHIRef ViewportRHI;
-		IRendererModule* RendererModule;
-		float ScreenScale;
-		int32 BlurKernel;
-		FVector2D ViewPortSize;
-		FOnCaptureScreenDelegate OnScreenCaptured;
-		UTexture2D* InTexture;
-		uint64 InCaptureCount;
-		FScreenCaptureModule* This;
-	};
-
-	FCopyVideoFrame CopyVideoFrame =
-	{
-		*ViewportRHI,
-		&RendererModule,
-		ScreenScale,
-		BlurKernel,
-		ViewPortSize,
-		OnScreenCaptured,
-		InTexture,
-		InCaptureCount,
-		this
-	};
-
-	ENQUEUE_UNIQUE_RENDER_COMMAND_ONEPARAMETER(
-		ReadSurfaceCommand,
-		FCopyVideoFrame, Context, CopyVideoFrame,
+	auto RenderCommand = [=](FRHICommandListImmediate& RHICmdList){
+		if (InCaptureCount != CaptureCount)
 		{
-			uint64 CaptureCount_RenderThread = Context.InCaptureCount;
-			if (CaptureCount_RenderThread != Context.This->CaptureCount)
+			return;
+		}
+		FTexture2DRHIRef ViewportBackBuffer = RHICmdList.GetViewportBackBuffer(*ViewportRHI);
+		FIntRect ScreenRect(0, 0, ViewPortSize.X, ViewPortSize.Y);
+		FIntRect TexRect(0, 0, InTexture->GetSizeX(), InTexture->GetSizeY());
+
+		TArray<FColor> OutScreenshotData;
+		RHICmdList.ReadSurfaceData(ViewportBackBuffer, ScreenRect, OutScreenshotData, FReadSurfaceDataFlags());
+
+		uint32 Size = TexRect.Width() * TexRect.Height();
+		TArray<FColor> OutData;
+		OutData.AddUninitialized(Size);
+		for (int32 Y = 0; Y < TexRect.Height(); Y++)
+		{
+			for (int32 X = 0; X < TexRect.Width(); X++)
+			{
+				OutData[Y * TexRect.Width() + X] = OutScreenshotData[(int32)(Y / ScreenScale) * ScreenRect.Width() + (int32)(X / ScreenScale)];
+			}
+		}
+
+		static int32 MaxCore = 4;
+		StackBlur(OutData.GetData(), TexRect.Width(), TexRect.Height(), BlurKernel, MaxCore);
+		FUpdateTextureRegion2D UpdateRegion(0, 0, 0, 0, TexRect.Width(), TexRect.Height());
+		auto Resource = (FTexture2DResource*)(InTexture->Resource);
+		RHICmdList.UpdateTexture2D(
+			Resource->GetTexture2DRHI(),
+			0,
+			UpdateRegion,
+			sizeof(FColor) * TexRect.Width(),
+			(uint8*)OutData.GetData()
+			);
+
+		GameThreadTasks.Enqueue([=]() {
+			if (CaptureCount != CaptureCount)
 			{
 				return;
 			}
-			FTexture2DRHIRef ViewportBackBuffer = RHICmdList.GetViewportBackBuffer(Context.ViewportRHI);
-			FIntRect ScreenRect(0, 0, Context.ViewPortSize.X, Context.ViewPortSize.Y);
-			FIntRect TexRect(0, 0, Context.InTexture->GetSizeX(), Context.InTexture->GetSizeY());
-			UTexture2D* InTexture_RenderThread = Context.InTexture;
-			FOnCaptureScreenDelegate OnScreenCaptured_RenderThread = Context.OnScreenCaptured;
-
-			TArray<FColor> OutScreenshotData;
-			RHICmdList.ReadSurfaceData(ViewportBackBuffer, ScreenRect, OutScreenshotData, FReadSurfaceDataFlags());
-
-			uint32 Size = TexRect.Width() * TexRect.Height();
-			TArray<FColor> OutData;
-			OutData.AddUninitialized(Size);
-			for (int32 Y = 0; Y < TexRect.Height(); Y++)
-			{
-				for (int32 X = 0; X < TexRect.Width(); X++)
-				{
-					OutData[Y * TexRect.Width() + X] = OutScreenshotData[(int32)(Y / Context.ScreenScale) * ScreenRect.Width() + (int32)(X / Context.ScreenScale)];
-				}
-			}
-
-			static int32 MaxCore = 4;
-			Context.This->StackBlur(OutData.GetData(), TexRect.Width(), TexRect.Height(), Context.BlurKernel, MaxCore);
-			FUpdateTextureRegion2D UpdateRegion(0, 0, 0, 0, TexRect.Width(), TexRect.Height());
-			auto Resource = (FTexture2DResource*)(InTexture_RenderThread->Resource);
-			RHICmdList.UpdateTexture2D(
-				Resource->GetTexture2DRHI(),
-				0,
-				UpdateRegion,
-				sizeof(FColor) * TexRect.Width(),
-				(uint8*)OutData.GetData()
-				);
-
-			Context.This->GameThreadTasks.Enqueue( [=]() {
-				if (CaptureCount_RenderThread != Context.This->CaptureCount)
-				{
-					return;
-				}
-				OnScreenCaptured_RenderThread.Execute(InTexture_RenderThread);
-			}
-			);
+			OnScreenCaptured.Execute(InTexture);
 		}
 	);
+};
+
+ENQUEUE_UNIQUE_RENDER_COMMAND_ONEPARAMETER(
+	ResolveCaptureFrameTexture,
+	TFunction<void(FRHICommandListImmediate&)>, InRenderCommand, RenderCommand,
+	{
+		InRenderCommand(RHICmdList);
+	});
 }
 
 void FScreenCaptureModule::OnSlateWindowRendered_ScreenCapture(SWindow& SlateWindow, void* ViewportRHIPtr, FDelegateHandle* DelegateHandle, FOnCaptureScreenDelegate OnScreenCaptured, UTexture2D* InTexture, uint64 InCaptureCount)
@@ -544,65 +518,44 @@ void FScreenCaptureModule::OnSlateWindowRendered_ScreenCapture(SWindow& SlateWin
 	static const FName RendererModuleName("Renderer");
 	IRendererModule& RendererModule = FModuleManager::GetModuleChecked<IRendererModule>(RendererModuleName);
 
-	struct FCopyVideoFrame
-	{
-		FViewportRHIRef ViewportRHI;
-		IRendererModule* RendererModule;
-		FVector2D ViewPortSize;
-		FOnCaptureScreenDelegate OnScreenCaptured;
-		UTexture2D* InTexture;
-		uint64 InCaptureCount;
-		FScreenCaptureModule* This;
-	};
-
-	FCopyVideoFrame CopyVideoFrame =
-	{
-		*ViewportRHI,
-		&RendererModule,
-		ViewPortSize,
-		OnScreenCaptured,
-		InTexture,
-		InCaptureCount,
-		this
-	};
-
-	ENQUEUE_UNIQUE_RENDER_COMMAND_ONEPARAMETER(
-		ReadSurfaceCommand,
-		FCopyVideoFrame, Context, CopyVideoFrame,
+	auto RenderCommand = [=](FRHICommandListImmediate& RHICmdList) {
+		if (InCaptureCount != CaptureCount)
 		{
-			uint64 CaptureCount_RenderThread = Context.InCaptureCount;
-			if (CaptureCount_RenderThread != Context.This->CaptureCount)
+			return;
+		}
+		FTexture2DRHIRef ViewportBackBuffer = RHICmdList.GetViewportBackBuffer(*ViewportRHI);
+		FIntRect ScreenRect(0, 0, ViewPortSize.X, ViewPortSize.Y);
+
+		TArray<FColor> OutScreenshotData;
+		RHICmdList.ReadSurfaceData(ViewportBackBuffer, ScreenRect, OutScreenshotData, FReadSurfaceDataFlags());
+
+		FUpdateTextureRegion2D UpdateRegion(0, 0, 0, 0, ScreenRect.Width(), ScreenRect.Height());
+		auto Resource = (FTexture2DResource*)(InTexture->Resource);
+		RHICmdList.UpdateTexture2D(
+			Resource->GetTexture2DRHI(),
+			0,
+			UpdateRegion,
+			sizeof(FColor) * ScreenRect.Width(),
+			(uint8*)OutScreenshotData.GetData()
+			);
+
+		GameThreadTasks.Enqueue([=]() {
+			if (CaptureCount != CaptureCount)
 			{
 				return;
 			}
-			FTexture2DRHIRef ViewportBackBuffer = RHICmdList.GetViewportBackBuffer(Context.ViewportRHI);
-			FIntRect ScreenRect(0, 0, Context.ViewPortSize.X, Context.ViewPortSize.Y);
-			UTexture2D* InTexture_RenderThread = Context.InTexture;
-			FOnCaptureScreenDelegate OnScreenCaptured_RenderThread = Context.OnScreenCaptured;
-
-			TArray<FColor> OutScreenshotData;
-			RHICmdList.ReadSurfaceData(ViewportBackBuffer, ScreenRect, OutScreenshotData, FReadSurfaceDataFlags());
-
-			FUpdateTextureRegion2D UpdateRegion(0, 0, 0, 0, ScreenRect.Width(), ScreenRect.Height());
-			auto Resource = (FTexture2DResource*)(InTexture_RenderThread->Resource);
-			RHICmdList.UpdateTexture2D(
-				Resource->GetTexture2DRHI(),
-				0,
-				UpdateRegion,
-				sizeof(FColor) * ScreenRect.Width(),
-				(uint8*)OutScreenshotData.GetData()
-				);
-
-			Context.This->GameThreadTasks.Enqueue([=]() {
-				if (CaptureCount_RenderThread != Context.This->CaptureCount)
-				{
-					return;
-				}
-				OnScreenCaptured_RenderThread.Execute(InTexture_RenderThread);
-			}
-			);
+			OnScreenCaptured.Execute(InTexture);
 		}
-	);
+		);
+	};
+
+	ENQUEUE_UNIQUE_RENDER_COMMAND_ONEPARAMETER(
+		ResolveCaptureFrameTexture,
+		TFunction<void(FRHICommandListImmediate&)>, InRenderCommand, RenderCommand,
+		{
+			InRenderCommand(RHICmdList);
+		});
+
 }
 
 void FScreenCaptureModule::Tick(float DeltaTime)
