@@ -2,7 +2,7 @@
 	"FileVersion": 3,
 	"Version": 1,
 	"VersionName": "1.0",
-	"FriendlyName": "ScreenCapture",
+	"FriendlyName": "FrameCapturer",
 	"Description": "",
 	"Category": "Kingsoft",
 	"CreatedBy": "",
@@ -10,13 +10,13 @@
 	"DocsURL": "",
 	"MarketplaceURL": "",
 	"SupportURL": "",
-	"EnabledByDefault": true,
+	"EnabledByDefault": false,
 	"CanContainContent": true,
 	"IsBetaVersion": false,
 	"Installed": false,
 	"Modules": [
 		{
-			"Name": "ScreenCapture",
+			"Name": "FrameCapturer",
 			"Type": "Runtime",
 			"LoadingPhase": "Default"
 		}

@@ -1,4 +1,6 @@
-目前是把FBO写回CPU再模糊，性能很差，这是为了兼容 OpenGL ES2 前向渲染，ES2 上的 BackBuffer 作为 ShaderResource 会渲染失败，不知道原因，glBlitFramebuffer 也不支持。
+安卓 ES2 不支持 BackBuffer 作为 ShaderResource，会渲染失败，glBlitFramebuffer 也不支持。
+
+所以改了一部分引擎代码来支持。
 
 目前支持了 CPU 的 Stack Blur 和 GPU 的 Gaussian Blur。
 
