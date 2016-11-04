@@ -1,19 +1,19 @@
 using UnrealBuildTool;
 
-public class ScreenCapture : ModuleRules
+public class FrameCapturer : ModuleRules
 {
-    public ScreenCapture(TargetInfo Target)
+    public FrameCapturer(TargetInfo Target)
     {
         PublicIncludePaths.AddRange(
             new string[] {
-                "ScreenCapture/Public"
+                "FrameCapturer/Public"
             }
             );
 
 
         PrivateIncludePaths.AddRange(
             new string[] {
-                "ScreenCapture/Private",
+                "FrameCapturer/Private",
             }
             );
 
@@ -36,6 +36,7 @@ public class ScreenCapture : ModuleRules
                 "SlateCore",
                 "Slate",
                 "UtilityShaders",
+                "UMG",
             }
             );
 
