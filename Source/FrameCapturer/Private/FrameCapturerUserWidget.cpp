@@ -130,7 +130,7 @@ void UFrameCapturerUserWidget::UpdateImage(const FCapturedFrame& CapturedFrame)
 	ENQUEUE_UNIQUE_RENDER_COMMAND_TWOPARAMETER(
 		ResolveCaptureFrameTexture,
 		TFunction<void(FRHICommandListImmediate&, const TArray<FColor>&)>, InRenderCommand, RenderCommand,
-		const TArray<FColor>&, Data, OutData,
+		const TArray<FColor>, Data, MoveTemp(OutData),
 		{
 			InRenderCommand(RHICmdList, Data);
 		});
