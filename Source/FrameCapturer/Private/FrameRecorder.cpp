@@ -1,10 +1,6 @@
 #include "FrameCapturerPrivatePCH.h"
 #include "FrameRecorder.h"
 #include "SceneViewport.h"
-#include "ScreenRendering.h"
-#include "RenderCore.h"
-#include "RHIStaticStates.h"
-#include "RendererInterface.h"
 
 FViewportReader::FViewportReader(EPixelFormat InPixelFormat, FIntPoint InBufferSize)
 {
@@ -63,20 +59,92 @@ void FViewportReader::BlockUntilAvailable()
 	}
 }
 
-void FViewportReader::ResolveRenderTarget(const FViewportRHIRef& ViewportRHI, TFunction<void(FColor*, int32, int32)> Callback)
+void FViewportReader::ResolveRenderTarget(const FViewportRHIRef& ViewportRHI, TFunction<void(const TArray<FColor>&, int32, int32)> Callback)
 {
 	static const FName RendererModuleName("Renderer");
 	IRendererModule* RendererModule = &FModuleManager::GetModuleChecked<IRendererModule>(RendererModuleName);
 
 	auto RenderCommand = [=](FRHICommandListImmediate& RHICmdList) {
-		FTexture2DRHIRef SourceBackBuffer = RHICmdList.GetViewportBackBuffer(ViewportRHI);
-		TArray<FColor> ColorDataBuffer;
-		FIntRect Rect{ CaptureRect.Min.X , CaptureRect.Min.Y, CaptureRect.Max.X, CaptureRect.Max.Y };
-		RHICmdList.ReadSurfaceData(SourceBackBuffer, Rect, ColorDataBuffer, FReadSurfaceDataFlags());
+		{
+			const FIntPoint TargetSize(ReadbackTexture->GetSizeX(), ReadbackTexture->GetSizeY());
 
-		Callback((FColor*)ColorDataBuffer.GetData(), Rect.Width(), Rect.Height());
+			FPooledRenderTargetDesc OutputDesc = FPooledRenderTargetDesc::Create2DDesc(
+				TargetSize,
+				ReadbackTexture->GetFormat(),
+				FClearValueBinding::None,
+				TexCreate_None,
+				TexCreate_RenderTargetable,
+				false);
+
+			TRefCountPtr<IPooledRenderTarget> ResampleTexturePooledRenderTarget;
+			RendererModule->RenderTargetPoolFindFreeElement(RHICmdList, OutputDesc, ResampleTexturePooledRenderTarget, TEXT("FrameRecorderResampleTexture"));
+			check(ResampleTexturePooledRenderTarget);
+
+			const FSceneRenderTargetItem& DestRenderTarget = ResampleTexturePooledRenderTarget->GetRenderTargetItem();
+
+			SetRenderTarget(RHICmdList, DestRenderTarget.TargetableTexture, FTextureRHIRef());
+
+			RHICmdList.SetViewport(0, 0, 0.0f, TargetSize.X, TargetSize.Y, 1.0f);
+
+			RHICmdList.SetBlendState(TStaticBlendState<>::GetRHI());
+			RHICmdList.SetRasterizerState(TStaticRasterizerState<>::GetRHI());
+			RHICmdList.SetDepthStencilState(TStaticDepthStencilState<false, CF_Always>::GetRHI());
+
+			const ERHIFeatureLevel::Type FeatureLevel = GMaxRHIFeatureLevel;
+
+			TShaderMap<FGlobalShaderType>* ShaderMap = GetGlobalShaderMap(FeatureLevel);
+			TShaderMapRef<FScreenVS> VertexShader(ShaderMap);
+			TShaderMapRef<FScreenPS> PixelShader(ShaderMap);
+
+			static FGlobalBoundShaderState BoundShaderState;
+			SetGlobalBoundShaderState(RHICmdList, FeatureLevel, BoundShaderState, RendererModule->GetFilterVertexDeclaration().VertexDeclarationRHI, *VertexShader, *PixelShader);
+
+			FTexture2DRHIRef SourceBackBuffer = RHICmdList.GetViewportBackBuffer(ViewportRHI);
+
+			if (TargetSize.X != SourceBackBuffer->GetSizeX() || TargetSize.Y != SourceBackBuffer->GetSizeY())
+			{
+				PixelShader->SetParameters(RHICmdList, TStaticSamplerState<SF_Bilinear>::GetRHI(), SourceBackBuffer);
+			}
+			else
+			{
+				PixelShader->SetParameters(RHICmdList, TStaticSamplerState<SF_Point>::GetRHI(), SourceBackBuffer);
+			}
+
+			float U = float(CaptureRect.Min.X) / float(SourceBackBuffer->GetSizeX());
+			float V = float(CaptureRect.Min.Y) / float(SourceBackBuffer->GetSizeY());
+			float SizeU = float(CaptureRect.Max.X) / float(SourceBackBuffer->GetSizeX()) - U;
+			float SizeV = float(CaptureRect.Max.Y) / float(SourceBackBuffer->GetSizeY()) - V;
+
+			RendererModule->DrawRectangle(
+				RHICmdList,
+				0, 0,									// Dest X, Y
+				TargetSize.X,							// Dest Width
+				TargetSize.Y,							// Dest Height
+				U, V,									// Source U, V
+				SizeU, SizeV,							// Source USize, VSize
+				TargetSize,								// Target buffer size
+				FIntPoint(1, 1),						// Source texture size
+				*VertexShader,
+				EDRF_Default);
+
+			const bool bKeepOriginalSurface = false;
+			RHICmdList.CopyToResolveTarget(
+				DestRenderTarget.TargetableTexture,
+				ReadbackTexture,
+				bKeepOriginalSurface,
+				FResolveParams());
+
+			// TODO : GPU Version
+			{
+				TArray<FColor> ColorDataBuffer;
+				FIntRect Rect{ 0 , 0, TargetSize.X, TargetSize.Y };
+				RHICmdList.ReadSurfaceData(ReadbackTexture, Rect, ColorDataBuffer, FReadSurfaceDataFlags());
+
+				Callback(ColorDataBuffer, Rect.Width(), Rect.Height());
+			}
 
 		AvailableEvent->Trigger();
+		}
 	};
 
 	ENQUEUE_UNIQUE_RENDER_COMMAND_ONEPARAMETER(
@@ -283,35 +351,18 @@ void FFrameCapturer::OnSlateWindowRendered(SWindow& SlateWindow, void* ViewportR
 	ThisFrameTarget->Surface.Initialize();
 	ThisFrameTarget->Marker = Marker;
 
-	Surfaces[ThisCaptureIndex].Surface.ResolveRenderTarget(*RHIViewport, [=](FColor* ColorBuffer, int32 Width, int32 Height) {
+	Surfaces[ThisCaptureIndex].Surface.ResolveRenderTarget(*RHIViewport, [=](const TArray<FColor>& ColorBuffer, int32 Width, int32 Height) {
 		OnFrameReady(ThisCaptureIndex, ColorBuffer, Width, Height);
 	});
 
 	CurrentFrameIndex = (CurrentFrameIndex + 1) % Surfaces.Num();
 }
 
-void FFrameCapturer::OnFrameReady(int32 BufferIndex, FColor* ColorBuffer, int32 Width, int32 Height)
+void FFrameCapturer::OnFrameReady(int32 BufferIndex, const TArray<FColor>& ColorBuffer, int32 Width, int32 Height)
 {
-	if (!ensure(ColorBuffer))
-	{
-		OutstandingFrameCount.Decrement();
-		return;
-	}
-
 	const FResolveSurface& Surface = Surfaces[BufferIndex];
-
 	FCapturedFrame ResolvedFrameData(TargetSize, Surface.Marker);
-
-	ResolvedFrameData.ColorBuffer.InsertUninitialized(0, TargetSize.X * TargetSize.Y);
-	FColor* Dest = &ResolvedFrameData.ColorBuffer[0];
-
-	const int32 MaxWidth = FMath::Min(TargetSize.X, Width);
-	for (int32 Row = 0; Row < FMath::Min(Height, TargetSize.Y); ++Row)
-	{
-		FMemory::Memcpy(Dest, ColorBuffer, sizeof(FColor)*MaxWidth);
-		ColorBuffer += Width;
-		Dest += MaxWidth;
-	}
+	ResolvedFrameData.ColorBuffer = MoveTemp(ColorBuffer) ;
 
 	{
 		FScopeLock Lock(&CapturedFramesMutex);

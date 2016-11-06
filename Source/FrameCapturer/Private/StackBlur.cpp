@@ -354,31 +354,40 @@ void StackBlur(const TArray<FColor>& InSrc, uint32 Width, uint32 Height, uint32 
 	uint32 Div = (Radius * 2) + 1;
 	uint8* Stack = new uint8[Div * 4 * MaxCore];
 
-	TArray<TFuture<void>> Futrues;
-	Futrues.Reserve(MaxCore);
+	if (MaxCore == 1)
+	{
+		StackBlurJob(Src, Width, Height, Radius, MaxCore, 0, 1, Stack);
+		StackBlurJob(Src, Width, Height, Radius, MaxCore, 0, 2, Stack);
+	}
+	else
+	{
+		TArray<TFuture<void>> Futrues;
+		Futrues.Reserve(MaxCore);
 
-	for (int32 Index = 0; Index < MaxCore; ++Index)
-	{
-		Futrues.Insert(Async<void>(EAsyncExecution::TaskGraph, [=]()
+		for (int32 Index = 0; Index < MaxCore; ++Index)
 		{
-			StackBlurJob(Src, Width, Height, Radius, MaxCore, Index, 1, Stack + Div * 4 * Index);
-		}), Index);
-	}
-	for (int32 i = 0; i < MaxCore; ++i)
-	{
-		Futrues[i].Get();
-	}
-	for (int32 Index = 0; Index < MaxCore; ++Index)
-	{
-		Futrues.Insert(Async<void>(EAsyncExecution::TaskGraph, [=]()
+			Futrues.Insert(Async<void>(EAsyncExecution::TaskGraph, [=]()
+			{
+				StackBlurJob(Src, Width, Height, Radius, MaxCore, Index, 1, Stack + Div * 4 * Index);
+			}), Index);
+		}
+		for (int32 i = 0; i < MaxCore; ++i)
 		{
-			StackBlurJob(Src, Width, Height, Radius, MaxCore, Index, 2, Stack + Div * 4 * Index);
-		}), Index);
+			Futrues[i].Get();
+		}
+		for (int32 Index = 0; Index < MaxCore; ++Index)
+		{
+			Futrues.Insert(Async<void>(EAsyncExecution::TaskGraph, [=]()
+			{
+				StackBlurJob(Src, Width, Height, Radius, MaxCore, Index, 2, Stack + Div * 4 * Index);
+			}), Index);
+		}
+		for (int32 i = 0; i < MaxCore; ++i)
+		{
+			Futrues[i].Get();
+		}
 	}
-	for (int32 i = 0; i < MaxCore; ++i)
-	{
-		Futrues[i].Get();
-	}
+
 
 	delete[] Stack;
 }

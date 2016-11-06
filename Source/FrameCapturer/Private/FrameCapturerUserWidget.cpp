@@ -60,7 +60,7 @@ void UFrameCapturerUserWidget::CaptureFrame()
 		{
 			FVector2D ViewportSize;
 			ViewportClient->GetViewportSize(ViewportSize);
-			FrameCapturer = MakeUnique<FFrameCapturer>(ViewportClient->GetGameViewport(), FIntPoint(ViewportSize.X, ViewportSize.Y));
+			FrameCapturer = MakeUnique<FFrameCapturer>(ViewportClient->GetGameViewport(), FIntPoint((int32)ViewportSize.X >> DownSampleNum, (int32)ViewportSize.Y >> DownSampleNum));
 			FrameCapturer->StartCapturingFrames();
 		}
 	}
@@ -94,33 +94,22 @@ void UFrameCapturerUserWidget::ShowWidget()
 
 void UFrameCapturerUserWidget::UpdateImage(const FCapturedFrame& CapturedFrame)
 {
-	FillImageBrush(CapturedFrame);
+	FillImageBrush(CapturedFrame.BufferSize);
 
 	FIntPoint BufferSize = CapturedFrame.BufferSize;
-	FIntRect TexRect(0, 0, BufferSize.X >> DownSampleNum, BufferSize.Y >> DownSampleNum);
-	uint32 Size = TexRect.Width() * TexRect.Height();
-	TArray<FColor> OutData;
-	OutData.AddUninitialized(Size);
-	for (int32 Y = 0; Y < TexRect.Height(); Y++)
-	{
-		for (int32 X = 0; X < TexRect.Width(); X++)
-		{
-			OutData[Y * TexRect.Width() + X] = CapturedFrame.ColorBuffer[(Y << DownSampleNum) * BufferSize.X + (X << DownSampleNum)];
-		}
-	}
+	TArray<FColor> OutData(MoveTemp(CapturedFrame.ColorBuffer));
 
-	static int32 MaxCore = 4;
-	StackBlur(OutData, TexRect.Width(), TexRect.Height(), BlurKernel, MaxCore);
+	StackBlur(OutData, BufferSize.X, BufferSize.Y, BlurKernel, StackBlurParallelCore);
 
 	auto RenderCommand = [=](FRHICommandListImmediate& RHICmdList, const TArray<FColor>& Data) {
-		FUpdateTextureRegion2D UpdateRegion(0, 0, 0, 0, TexRect.Width(), TexRect.Height());
+		FUpdateTextureRegion2D UpdateRegion(0, 0, 0, 0, BufferSize.X, BufferSize.Y);
 		{
 			auto Resource = (FTexture2DResource*)(ShareImageTexture2D->Resource);
 			RHICmdList.UpdateTexture2D(
 				Resource->GetTexture2DRHI(),
 				0,
 				UpdateRegion,
-				sizeof(FColor) * TexRect.Width(),
+				sizeof(FColor) * BufferSize.X,
 				(uint8*)OutData.GetData()
 				);
 			ShowWidget();
@@ -136,14 +125,12 @@ void UFrameCapturerUserWidget::UpdateImage(const FCapturedFrame& CapturedFrame)
 		});
 }
 
-void UFrameCapturerUserWidget::FillImageBrush(const FCapturedFrame &CapturedFrame)
+void UFrameCapturerUserWidget::FillImageBrush(const FIntPoint& BufferSize)
 {
-	FIntPoint BufferSize = CapturedFrame.BufferSize;
-	FIntRect TexRect(0, 0, BufferSize.X >> DownSampleNum, BufferSize.Y >> DownSampleNum);
 	if (!ShareImageTexture2D.IsValid() ||
-		ShareImageTexture2D->GetSizeX() != TexRect.Width() || ShareImageTexture2D->GetSizeY() != TexRect.Height())
+		ShareImageTexture2D->GetSizeX() != BufferSize.X || ShareImageTexture2D->GetSizeY() != BufferSize.Y)
 	{
-		ShareImageTexture2D = UTexture2D::CreateTransient(TexRect.Width(), TexRect.Height());
+		ShareImageTexture2D = UTexture2D::CreateTransient(BufferSize.X, BufferSize.Y);
 		ShareImageTexture2D->UpdateResource();
 	}
 	Image->SetBrushFromTexture(ShareImageTexture2D.Get());

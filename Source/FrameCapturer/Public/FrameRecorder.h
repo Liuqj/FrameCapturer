@@ -6,7 +6,7 @@ struct FViewportReader
 	~FViewportReader();
 	void Initialize();
 	void BlockUntilAvailable();
-	void ResolveRenderTarget(const FViewportRHIRef& ViewportRHI, TFunction<void(FColor*, int32, int32)> Callback);
+	void ResolveRenderTarget(const FViewportRHIRef& ViewportRHI, TFunction<void(const TArray<FColor>&, int32, int32)> Callback);
 	void SetCaptureRect(FIntRect InCaptureRect) { CaptureRect = InCaptureRect; }
 	void Resize(uint32 Width, uint32 Height);
 protected:
@@ -61,7 +61,7 @@ public:
 
 protected:
 	void OnSlateWindowRendered( SWindow& SlateWindow, void* ViewportRHIPtr );
-	void OnFrameReady(int32 SurfaceIndex, FColor* ColorBuffer, int32 Width, int32 Height);
+	void OnFrameReady(int32 SurfaceIndex, const TArray<FColor>& ColorBuffer, int32 Width, int32 Height);
 
 private:
 	FFrameCapturer(const FFrameCapturer&);
