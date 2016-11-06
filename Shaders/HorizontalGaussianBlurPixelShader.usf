@@ -9,24 +9,24 @@ void Main(
     out float4 OutColor : SV_Target0
     )
 {
-    const float3 GaussWeight[7] =  
+    const float4 GaussWeight[7] =  
     {  
-        float3(0.0205,0.0205,0.0205),  
-        float3(0.0855,0.0855,0.0855),  
-        float3(0.232,0.232,0.232),  
-        float3(0.324,0.324,0.324),  
-        float3(0.232,0.232,0.232),  
-        float3(0.0855,0.0855,0.0855),  
-        float3(0.0205,0.0205,0.0205)  
+        float4(0.0205,0.0205,0.0205,1),  
+        float4(0.0855,0.0855,0.0855,1),  
+        float4(0.232,0.232,0.232,1),  
+        float4(0.324,0.324,0.324,1),  
+        float4(0.232,0.232,0.232,1),  
+        float4(0.0855,0.0855,0.0855,1),  
+        float4(0.0205,0.0205,0.0205,1)  
     };  
 
     float UVWithOffset = Input.UV.x - InSamplerOffset * 3.0;  
 
-    OutColor = 0;  
+	OutColor = 0;
     [unroll]
     for (int i = 0; i< 7; i++)  
     {  
-        OutColor.rgb += Texture2DSample(InTexture, InTextureSampler, float2(UVWithOffset, Input.UV.y)).rgb * GaussWeight[i];
+        OutColor += Texture2DSample(InTexture, InTextureSampler, float2(UVWithOffset, Input.UV.y)) * GaussWeight[i];
         UVWithOffset += InSamplerOffset;  
-    }  
+    }
 }

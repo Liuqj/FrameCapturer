@@ -11,7 +11,7 @@ enum class EFrameCapturerUserWidgetBlurMode : uint8
 }; 
 
 UCLASS()
-class FRAMECAPTURER_API UFrameCapturerUserWidget : public UUserWidget
+class FRAMECAPTURER_API UFrameCapturerUserWidget : public UUserWidget, public FTickableGameObject
 {
 	GENERATED_BODY()
 public:
@@ -19,18 +19,24 @@ public:
 	// TODO: ~UFrameCapturerUserWidget trigger this£¿
 	virtual void NativeDestruct() override;
 
+public:
+	virtual void Tick(float DeltaTime) override;
+	virtual bool IsTickable() const override;
+	virtual TStatId GetStatId() const override;
+	bool IsTickableWhenPaused() const override;
+
+
 	UFUNCTION(BlueprintCallable, Category = "")
 	void CaptureFrame();
 
 private:
-	void CheckCaptureTimer();
 	void DestoryFrameCapturer();
 	void HiddenWidget();
 	void ShowWidget();
-	void UpdateImage(const FCapturedFrame& CapturedFrame);
-	void UpdateImageStackBlur(const FCapturedFrame& CapturedFrame);
-	void UpdateImageGaussianBlur(const FCapturedFrame& CapturedFrame);
-	void FillImageBrush(const FIntPoint &BufferSize);
+	void UpdateImage(FRHICommandListImmediate& RHICmdList, const TArray<FColor>& ColorBuffer, const TRefCountPtr<IPooledRenderTarget>& Texture, int32 Width, int32 Height);
+	void UpdateImageStackBlur(FRHICommandListImmediate& RHICmdList, const TArray<FColor>& ColorBuffer, const TRefCountPtr<IPooledRenderTarget>& Texture, int32 Width, int32 Height);
+	void UpdateImageGaussianBlur(FRHICommandListImmediate& RHICmdList, const TArray<FColor>& ColorBuffer, const TRefCountPtr<IPooledRenderTarget>& Texture, int32 Width, int32 Height);
+	void FillImageBrush(int32 Width, int32 Height);
 
 public:
 	UPROPERTY(meta = (BindWidget))
@@ -45,14 +51,20 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "FrameCapturer")
 	int32 DownSampleNum = 1;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "FrameCapturer")
+	int32 CaptureFrameCount = 1;
+
 	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "FrameCapturer")
 	EFrameCapturerUserWidgetBlurMode BlurMode = EFrameCapturerUserWidgetBlurMode::StackBlur_CPU;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "FrameCapturer")
 	int32 StackBlurParallelCore = 4;
 
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "FrameCapturer")
+	int32 GaussianBlurIteratorCount = 2;
+
 private:
-	FTimerHandle TimerHandle;
+	bool IsShow = false;
 	TUniquePtr<class FFrameCapturer> FrameCapturer;
 	static TWeakObjectPtr<UTexture2D> ShareImageTexture2D;
 	static bool SingletonFlag;

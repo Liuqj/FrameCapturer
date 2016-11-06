@@ -5,7 +5,6 @@
 FViewportReader::FViewportReader(EPixelFormat InPixelFormat, FIntPoint InBufferSize, bool bInReadBack)
 {
 	AvailableEvent = nullptr;
-	ReadbackTexture = nullptr;
 	PixelFormat = InPixelFormat;
 	bReadBack = bInReadBack;
 
@@ -14,9 +13,10 @@ FViewportReader::FViewportReader(EPixelFormat InPixelFormat, FIntPoint InBufferS
 
 FViewportReader::~FViewportReader()
 {
-	BlockUntilAvailable();
-
-	ReadbackTexture.SafeRelease();
+	if (AvailableEvent)
+	{
+		FPlatformProcess::ReturnSynchEventToPool(AvailableEvent);
+	}
 }
 
 void FViewportReader::Initialize()
@@ -27,31 +27,8 @@ void FViewportReader::Initialize()
 
 void FViewportReader::Resize(uint32 InWidth, uint32 InHeight)
 {
-	ReadbackTexture.SafeRelease();
-
 	Width = InWidth;
 	Height = InHeight;
-
-	ENQUEUE_UNIQUE_RENDER_COMMAND_THREEPARAMETER(
-		CreateCaptureFrameTexture,
-		int32, InWidth, InWidth,
-		int32, InHeight, InHeight,
-		FViewportReader*, This, this,
-		{
-			FRHIResourceCreateInfo CreateInfo;
-			if (This->bReadBack)
-			{
-				This->ReadbackTexture = RHICreateTexture2D(
-					InWidth,
-					InHeight,
-					This->PixelFormat,
-					1,
-					1,
-					TexCreate_CPUReadback,
-					CreateInfo
-					);
-			}
-		});
 }
 
 void FViewportReader::BlockUntilAvailable()
@@ -65,7 +42,7 @@ void FViewportReader::BlockUntilAvailable()
 	}
 }
 
-void FViewportReader::ResolveRenderTarget(const FViewportRHIRef& ViewportRHI, const TFunction<void(const TArray<FColor>&, const FTexture2DRHIRef&, int32, int32)>& Callback)
+void FViewportReader::ResolveRenderTarget(const FViewportRHIRef& ViewportRHI, const TFunction<void(FRHICommandListImmediate& RHICmdList, const TArray<FColor>&, const TRefCountPtr<IPooledRenderTarget>&, int32, int32)>& Callback)
 {
 	static const FName RendererModuleName("Renderer");
 	IRendererModule* RendererModule = &FModuleManager::GetModuleChecked<IRendererModule>(RendererModuleName);
@@ -82,15 +59,14 @@ void FViewportReader::ResolveRenderTarget(const FViewportRHIRef& ViewportRHI, co
 				TexCreate_RenderTargetable,
 				false);
 
-			TRefCountPtr<IPooledRenderTarget> ResampleTexturePooledRenderTarget;
-			RendererModule->RenderTargetPoolFindFreeElement(RHICmdList, OutputDesc, ResampleTexturePooledRenderTarget, TEXT("FrameRecorderResampleTexture"));
-			check(ResampleTexturePooledRenderTarget);
+			TRefCountPtr<IPooledRenderTarget> FrameRecorderDownSample;
+			RendererModule->RenderTargetPoolFindFreeElement(RHICmdList, OutputDesc, FrameRecorderDownSample, TEXT("FrameRecorderDownSample"));
+			check(FrameRecorderDownSample);
 
-			const FSceneRenderTargetItem& DestRenderTarget = ResampleTexturePooledRenderTarget->GetRenderTargetItem();
+			const FSceneRenderTargetItem& DestRenderTarget = FrameRecorderDownSample->GetRenderTargetItem();
 
 			// DownSample
 			{
-
 				SetRenderTarget(RHICmdList, DestRenderTarget.TargetableTexture, FTextureRHIRef());
 
 				RHICmdList.SetViewport(0, 0, 0.0f, TargetSize.X, TargetSize.Y, 1.0f);
@@ -143,27 +119,18 @@ void FViewportReader::ResolveRenderTarget(const FViewportRHIRef& ViewportRHI, co
 			TArray<FColor> ColorDataBuffer;
 			if (bReadBack)
 			{
-				RHICmdList.CopyToResolveTarget(
-					DestRenderTarget.TargetableTexture,
-					ReadbackTexture,
-					false,
-					FResolveParams());
-
-				RHICmdList.ReadSurfaceData(ReadbackTexture, Rect, ColorDataBuffer, FReadSurfaceDataFlags());
+				RHICmdList.ReadSurfaceData(DestRenderTarget.TargetableTexture, Rect, ColorDataBuffer, FReadSurfaceDataFlags());
 			}
 			else
 			{
-				const bool bKeepOriginalSurface = false;
 				RHICmdList.CopyToResolveTarget(
 					DestRenderTarget.TargetableTexture,
 					DestRenderTarget.ShaderResourceTexture,
-					bKeepOriginalSurface,
+					false,
 					FResolveParams());
-
-					Texture = (FTexture2DRHIRef&)(DestRenderTarget.ShaderResourceTexture);
 			}
 
-			Callback(ColorDataBuffer, Texture, Rect.Width(), Rect.Height());
+			Callback(RHICmdList, ColorDataBuffer, FrameRecorderDownSample, Rect.Width(), Rect.Height());
 
 			AvailableEvent->Trigger();
 		}
@@ -226,24 +193,22 @@ FFrameCapturer::FFrameCapturer(FSceneViewport* Viewport, FIntPoint DesiredBuffer
 		Surfaces.Emplace(InPixelFormat, DesiredBufferSize, bReadBack);
 		Surfaces.Last().Surface.SetCaptureRect(CaptureRect);
 	}
-
-	//FlushRenderingCommands();
 }
 
 FFrameCapturer::~FFrameCapturer()
 {
-	if (OnWindowRendered.IsValid())
-	{
-		FSlateApplication::Get().GetRenderer()->OnSlateWindowRendered().Remove(OnWindowRendered);
-	}
+	StopCapturingFrames();
 }
 
-void FFrameCapturer::StartCapturingFrames()
+void FFrameCapturer::StartCapturingFrames(uint32 InFrameCount, TFunction<void(FRHICommandListImmediate&, const TArray<FColor>&, const TRefCountPtr<IPooledRenderTarget>&, int32, int32)>&& InFrameReady)
 {
 	if (!ensure(State == EFrameGrabberState::Inactive))
 	{
 		return;
 	}
+
+	RemainFrameCount = InFrameCount;
+	FrameReady = InFrameReady;
 
 #if PLATFORM_ANDROID
 	void* ViewportResource = FSlateApplication::Get().GetRenderer()->GetViewportResource(*CaptureWindow.Pin());
@@ -257,44 +222,20 @@ void FFrameCapturer::StartCapturingFrames()
 	OnWindowRendered = FSlateApplication::Get().GetRenderer()->OnSlateWindowRendered().AddRaw(this, &FFrameCapturer::OnSlateWindowRendered);
 }
 
-void FFrameCapturer::CaptureThisFrame(FFrameMarkerPtr Marker)
-{
-	if (!ensure(State == EFrameGrabberState::Active))
-	{
-		return;
-	}
-
-	OutstandingFrameCount.Increment();
-
-	FScopeLock Lock(&PendingFrameMarkersMutex);
-	PendingFrameMarkers.Add(Marker);
-}
-
 void FFrameCapturer::StopCapturingFrames()
 {
 	if (!ensure(State == EFrameGrabberState::Active))
 	{
 		return;
 	}
-#if PLATFORM_ANDROID
-	void* ViewportResource = FSlateApplication::Get().GetRenderer()->GetViewportResource(*CaptureWindow.Pin());
-	if (ViewportResource)
-	{
-		RHISetPendingRequestAndroidBackBuffer(*((FViewportRHIRef*)ViewportResource), false);
-	}
-#endif
-
-	State = EFrameGrabberState::PendingShutdown;
-}
-
-void FFrameCapturer::Shutdown()
-{
-	State = EFrameGrabberState::Inactive;
 
 	for (FResolveSurface& Surface : Surfaces)
 	{
 		Surface.Surface.BlockUntilAvailable();
 	}
+
+	RemainFrameCount = 0;
+	State = EFrameGrabberState::Inactive;
 
 	FSlateApplication::Get().GetRenderer()->OnSlateWindowRendered().Remove(OnWindowRendered);
 	OnWindowRendered = FDelegateHandle();
@@ -308,35 +249,9 @@ void FFrameCapturer::Shutdown()
 #endif
 }
 
-bool FFrameCapturer::HasOutstandingFrames() const
+uint32 FFrameCapturer::GetRemainFrameCount()
 {
-	FScopeLock Lock(&CapturedFramesMutex);
-
-	return OutstandingFrameCount.GetValue() || CapturedFrames.Num();
-}
-
-TArray<FCapturedFrame> FFrameCapturer::GetCapturedFrames()
-{
-	TArray<FCapturedFrame> ReturnFrames;
-
-	bool bShouldStop = false;
-	{
-		FScopeLock Lock(&CapturedFramesMutex);
-		Swap(ReturnFrames, CapturedFrames);
-		CapturedFrames.Reset();
-
-		if (State == EFrameGrabberState::PendingShutdown)
-		{
-			bShouldStop = OutstandingFrameCount.GetValue() == 0;
-		}
-	}
-
-	if (bShouldStop)
-	{
-		Shutdown();
-	}
-
-	return ReturnFrames;
+	return RemainFrameCount;
 }
 
 void FFrameCapturer::OnSlateWindowRendered(SWindow& SlateWindow, void* ViewportRHIPtr)
@@ -356,41 +271,27 @@ void FFrameCapturer::OnSlateWindowRendered(SWindow& SlateWindow, void* ViewportR
 	}
 #endif
 
-	FFrameMarkerPtr Marker;
+	if (RemainFrameCount == 0)
 	{
-		FScopeLock Lock(&PendingFrameMarkersMutex);
-		if (!PendingFrameMarkers.Num())
-		{
-			return;
-		}
-		Marker = PendingFrameMarkers[0];
-		PendingFrameMarkers.RemoveAt(0, 1, false);
+		return;
 	}
+
+	RemainFrameCount--;
 
 	const int32 ThisCaptureIndex = CurrentFrameIndex;
 
 	FResolveSurface* ThisFrameTarget = &Surfaces[ThisCaptureIndex];
 	ThisFrameTarget->Surface.BlockUntilAvailable();
-
 	ThisFrameTarget->Surface.Initialize();
-	ThisFrameTarget->Marker = Marker;
 
-	Surfaces[ThisCaptureIndex].Surface.ResolveRenderTarget(*RHIViewport, [=](const TArray<FColor>& ColorBuffer, const FTexture2DRHIRef& Texture, int32 Width, int32 Height) {
-		OnFrameReady(ThisCaptureIndex, ColorBuffer, Texture, Width, Height);
+	Surfaces[ThisCaptureIndex].Surface.ResolveRenderTarget(*RHIViewport, [=](FRHICommandListImmediate& RHICmdList, const TArray<FColor>& ColorBuffer, const TRefCountPtr<IPooledRenderTarget>& Texture, int32 Width, int32 Height) {
+		OnFrameReady_RenderThread(RHICmdList, ThisCaptureIndex, ColorBuffer, Texture, Width, Height);
 	});
 
 	CurrentFrameIndex = (CurrentFrameIndex + 1) % Surfaces.Num();
 }
 
-void FFrameCapturer::OnFrameReady(int32 BufferIndex, const TArray<FColor>& ColorBuffer, const FTexture2DRHIRef& Texture, int32 Width, int32 Height)
+void FFrameCapturer::OnFrameReady_RenderThread(FRHICommandListImmediate& RHICmdList, int32 BufferIndex, const TArray<FColor>& ColorBuffer, const TRefCountPtr<IPooledRenderTarget>& Texture, int32 Width, int32 Height)
 {
-	const FResolveSurface& Surface = Surfaces[BufferIndex];
-	FCapturedFrame ResolvedFrameData(TargetSize, Surface.Marker);
-	ResolvedFrameData.ColorBuffer = MoveTemp(ColorBuffer) ;
-	ResolvedFrameData.ReadbackTexture = MoveTemp(Texture);
-	{
-		FScopeLock Lock(&CapturedFramesMutex);
-		CapturedFrames.Add(MoveTemp(ResolvedFrameData));
-	}
-	OutstandingFrameCount.Decrement();
+	FrameReady(RHICmdList, ColorBuffer, Texture, Width, Height);
 }

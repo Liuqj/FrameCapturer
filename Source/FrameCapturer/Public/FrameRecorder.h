@@ -6,16 +6,13 @@ struct FViewportReader
 	~FViewportReader();
 	void Initialize();
 	void BlockUntilAvailable();
-	void ResolveRenderTarget(const FViewportRHIRef& ViewportRHI, const TFunction<void(const TArray<FColor>&, const FTexture2DRHIRef&, int32, int32)>& Callback);
+	void ResolveRenderTarget(const FViewportRHIRef& ViewportRHI, const TFunction<void(FRHICommandListImmediate& RHICmdList, const TArray<FColor>&, const TRefCountPtr<IPooledRenderTarget>&, int32, int32)>& Callback);
 	void SetCaptureRect(FIntRect InCaptureRect) { CaptureRect = InCaptureRect; }
 	void Resize(uint32 Width, uint32 Height);
 protected:
-	FThreadSafeBool bEnabled;
 	FEvent* AvailableEvent;
-	FTexture2DRHIRef ReadbackTexture;
 	FIntRect CaptureRect;
 	EPixelFormat PixelFormat;
-	bool bIsEnabled;
 	bool bReadBack;
 	uint32 Width;
 	uint32 Height;
@@ -32,14 +29,13 @@ struct FCapturedFrame
 {
 	FCapturedFrame(FIntPoint InBufferSize, FFrameMarkerPtr InMarker) : BufferSize(InBufferSize), Marker(MoveTemp(InMarker)) {}
 
-	FCapturedFrame(FCapturedFrame&& In) : ColorBuffer(MoveTemp(In.ColorBuffer)), ReadbackTexture(MoveTemp(In.ReadbackTexture)), BufferSize(In.BufferSize), Marker(MoveTemp(In.Marker)) {}
-	FCapturedFrame& operator=(FCapturedFrame&& In) { ColorBuffer = MoveTemp(In.ColorBuffer); ReadbackTexture = (MoveTemp(In.ReadbackTexture)); BufferSize = In.BufferSize; Marker = MoveTemp(In.Marker); return *this; }
+	FCapturedFrame(FCapturedFrame&& In) : ColorBuffer(MoveTemp(In.ColorBuffer)), BufferSize(In.BufferSize), Marker(MoveTemp(In.Marker)) {}
+	FCapturedFrame& operator=(FCapturedFrame&& In) { ColorBuffer = MoveTemp(In.ColorBuffer); BufferSize = In.BufferSize; Marker = MoveTemp(In.Marker); return *this; }
 
 	template<typename T>
 	T* GetMarker() { return static_cast<T*>(Marker.Get()); }
 
 	TArray<FColor> ColorBuffer;
-	FTexture2DRHIRef ReadbackTexture;
 	FIntPoint BufferSize;
 	FFrameMarkerPtr Marker;
 	
@@ -55,17 +51,12 @@ public:
 	~FFrameCapturer();
 
 public:
-	void StartCapturingFrames();
-	void CaptureThisFrame(FFrameMarkerPtr Marker);
+	void StartCapturingFrames(uint32 InFrameCount, TFunction<void(FRHICommandListImmediate&, const TArray<FColor>&, const TRefCountPtr<IPooledRenderTarget>&, int32, int32)>&& InFrameReady);
 	void StopCapturingFrames();
-	void Shutdown();
-public:
-	bool HasOutstandingFrames() const;
-	TArray<FCapturedFrame> GetCapturedFrames();
-
+	uint32 GetRemainFrameCount();
 protected:
 	void OnSlateWindowRendered( SWindow& SlateWindow, void* ViewportRHIPtr );
-	void OnFrameReady(int32 SurfaceIndex, const TArray<FColor>& ColorBuffer, const FTexture2DRHIRef& Texture, int32 Width, int32 Height);
+	void OnFrameReady_RenderThread(FRHICommandListImmediate& RHICmdList, int32 SurfaceIndex, const TArray<FColor>& ColorBuffer, const TRefCountPtr<IPooledRenderTarget>& Texture, int32 Width, int32 Height);
 
 private:
 	FFrameCapturer(const FFrameCapturer&);
@@ -78,21 +69,21 @@ private:
 
 	struct FResolveSurface
 	{
-		FResolveSurface(EPixelFormat InPixelFormat, FIntPoint BufferSize, bool bReadBack) : Surface(InPixelFormat, BufferSize, bReadBack) {}
+		FResolveSurface(EPixelFormat InPixelFormat, FIntPoint BufferSize, bool bInReadBack) : Surface(InPixelFormat, BufferSize, bInReadBack) {}
 		FFrameMarkerPtr Marker;
 		FViewportReader Surface;
 	};
 	TArray<FResolveSurface> Surfaces;
-	int32 CurrentFrameIndex;
-	int32 SlateRenderIndex;
-	FThreadSafeCounter OutstandingFrameCount;
-	FCriticalSection PendingFrameMarkersMutex;
-	TArray<FFrameMarkerPtr> PendingFrameMarkers;
-	bool bReadBack;
+	int32 CurrentFrameIndex = 0;
+	uint32 RemainFrameCount = 0;
+	bool bReadBack = true;
+
 	enum class EFrameGrabberState
 	{
-		Inactive, Active, PendingShutdown
+		Inactive, Active
 	};
-	EFrameGrabberState State;
+	EFrameGrabberState State = EFrameGrabberState::Inactive;
 	FIntPoint TargetSize;
+
+	TFunction<void(FRHICommandListImmediate&, const TArray<FColor>&, const TRefCountPtr<IPooledRenderTarget>&, int32, int32)> FrameReady;
 };

@@ -1,5 +1,4 @@
 #include "FrameCapturerPrivatePCH.h"
-#include "FrameCapturerModule.h"
 #include "ShaderFileVisitor.h"
 DEFINE_LOG_CATEGORY(LogFrameCapturer);
 
