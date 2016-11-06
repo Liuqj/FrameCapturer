@@ -1,0 +1,32 @@
+#include "Common.usf"
+
+Texture2D InTexture;
+SamplerState InTextureSampler;
+float InSamplerOffset;
+
+void Main(
+    FScreenVertexOutput Input,
+    out float4 OutColor : SV_Target0
+    )
+{
+    const float3 GaussWeight[7] =  
+    {  
+        float3(0.0205,0.0205,0.0205),  
+        float3(0.0855,0.0855,0.0855),  
+        float3(0.232,0.232,0.232),  
+        float3(0.324,0.324,0.324),  
+        float3(0.232,0.232,0.232),  
+        float3(0.0855,0.0855,0.0855),  
+        float3(0.0205,0.0205,0.0205)  
+    };  
+
+    float UVWithOffset = Input.UV.y - InSamplerOffset * 3.0;  
+
+    OutColor = 0;  
+    [unroll]
+    for (int i = 0; i< 7; i++)  
+    {  
+        OutColor.rgb += Texture2DSample(InTexture, InTextureSampler, float2(Input.UV.x, UVWithOffset)).rgb * GaussWeight[i];
+        UVWithOffset += InSamplerOffset;  
+    }  
+}

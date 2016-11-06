@@ -3,6 +3,83 @@
 #include "FrameRecorder.h"
 #include "StackBlur.h"
 
+class FHorizontalGaussianBlurPS : public FGlobalShader
+{
+	DECLARE_EXPORTED_SHADER_TYPE(FHorizontalGaussianBlurPS, Global, FRAMECAPTURER_API);
+public:
+
+	static bool ShouldCache(EShaderPlatform Platform) { return true; }
+
+	FHorizontalGaussianBlurPS(const ShaderMetaType::CompiledShaderInitializerType& Initializer) :
+		FGlobalShader(Initializer)
+	{
+		InTexture.Bind(Initializer.ParameterMap, TEXT("InTexture"), SPF_Mandatory);
+		InTextureSampler.Bind(Initializer.ParameterMap, TEXT("InTextureSampler"));
+		InSamplerOffset.Bind(Initializer.ParameterMap, TEXT("InSamplerOffset"));
+	}
+	FHorizontalGaussianBlurPS() {}
+
+	void SetParameters(FRHICommandList& RHICmdList, const FTexture* Texture, const float SamplerOffset)
+	{
+		SetTextureParameter(RHICmdList, GetPixelShader(), InTexture, InTextureSampler, Texture);
+		SetShaderValue(RHICmdList, GetPixelShader(), InSamplerOffset, SamplerOffset);
+	}
+
+	virtual bool Serialize(FArchive& Ar) override
+	{
+		bool bShaderHasOutdatedParameters = FGlobalShader::Serialize(Ar);
+		Ar << InTexture;
+		Ar << InTextureSampler;
+		Ar << InSamplerOffset;
+		return bShaderHasOutdatedParameters;
+	}
+
+private:
+	FShaderResourceParameter InTexture;
+	FShaderResourceParameter InTextureSampler;
+	FShaderParameter InSamplerOffset;
+};
+
+class FVerticalGaussianBlurPS : public FGlobalShader
+{
+	DECLARE_EXPORTED_SHADER_TYPE(FVerticalGaussianBlurPS, Global, FRAMECAPTURER_API);
+public:
+
+	static bool ShouldCache(EShaderPlatform Platform) { return true; }
+
+	FVerticalGaussianBlurPS(const ShaderMetaType::CompiledShaderInitializerType& Initializer) :
+		FGlobalShader(Initializer)
+	{
+		InTexture.Bind(Initializer.ParameterMap, TEXT("InTexture"), SPF_Mandatory);
+		InTextureSampler.Bind(Initializer.ParameterMap, TEXT("InTextureSampler"));
+		InSamplerOffset.Bind(Initializer.ParameterMap, TEXT("InSamplerOffset"));
+	}
+	FVerticalGaussianBlurPS() {}
+
+	void SetParameters(FRHICommandList& RHICmdList, const FTexture* Texture, const float SamplerOffset)
+	{
+		SetTextureParameter(RHICmdList, GetPixelShader(), InTexture, InTextureSampler, Texture);
+		SetShaderValue(RHICmdList, GetPixelShader(), InSamplerOffset, SamplerOffset);
+	}
+
+	virtual bool Serialize(FArchive& Ar) override
+	{
+		bool bShaderHasOutdatedParameters = FGlobalShader::Serialize(Ar);
+		Ar << InTexture;
+		Ar << InTextureSampler;
+		Ar << InSamplerOffset;
+		return bShaderHasOutdatedParameters;
+	}
+
+private:
+	FShaderResourceParameter InTexture;
+	FShaderResourceParameter InTextureSampler;
+	FShaderParameter InSamplerOffset;
+};
+
+IMPLEMENT_SHADER_TYPE(, FHorizontalGaussianBlurPS, TEXT("HorizontalGaussianBlurPixelShader"), TEXT("Main"), SF_Pixel);
+IMPLEMENT_SHADER_TYPE(, FVerticalGaussianBlurPS, TEXT("VerticalGaussianBlurPixelShader"), TEXT("Main"), SF_Pixel);
+
 void UFrameCapturerUserWidget::NativeConstruct()
 {
 	Super::NativeConstruct();
@@ -60,7 +137,7 @@ void UFrameCapturerUserWidget::CaptureFrame()
 		{
 			FVector2D ViewportSize;
 			ViewportClient->GetViewportSize(ViewportSize);
-			FrameCapturer = MakeUnique<FFrameCapturer>(ViewportClient->GetGameViewport(), FIntPoint((int32)ViewportSize.X >> DownSampleNum, (int32)ViewportSize.Y >> DownSampleNum));
+			FrameCapturer = MakeUnique<FFrameCapturer>(ViewportClient->GetGameViewport(), FIntPoint((int32)ViewportSize.X >> DownSampleNum, (int32)ViewportSize.Y >> DownSampleNum), BlurMode == EFrameCapturerUserWidgetBlurMode::StackBlur_CPU);
 			FrameCapturer->StartCapturingFrames();
 		}
 	}
@@ -96,6 +173,18 @@ void UFrameCapturerUserWidget::UpdateImage(const FCapturedFrame& CapturedFrame)
 {
 	FillImageBrush(CapturedFrame.BufferSize);
 
+	if (BlurMode == EFrameCapturerUserWidgetBlurMode::StackBlur_CPU)
+	{
+		UpdateImageStackBlur(CapturedFrame);
+	}
+	else if(BlurMode == EFrameCapturerUserWidgetBlurMode::GaussianBlur_GPU)
+	{
+		UpdateImageGaussianBlur(CapturedFrame);
+	}
+}
+
+void UFrameCapturerUserWidget::UpdateImageStackBlur(const FCapturedFrame& CapturedFrame)
+{
 	FIntPoint BufferSize = CapturedFrame.BufferSize;
 	TArray<FColor> OutData(MoveTemp(CapturedFrame.ColorBuffer));
 
@@ -125,15 +214,37 @@ void UFrameCapturerUserWidget::UpdateImage(const FCapturedFrame& CapturedFrame)
 		});
 }
 
+void UFrameCapturerUserWidget::UpdateImageGaussianBlur(const FCapturedFrame& CapturedFrame)
+{
+	auto Resource = (FTexture2DResource*)(ShareImageTexture2D->Resource);
+	auto Texture2DRHIRef = CapturedFrame.ReadbackTexture;
+	auto RenderCommand = [=](FRHICommandListImmediate& RHICmdList) {
+		Resource->TextureRHI = Texture2DRHIRef;
+		RHIUpdateTextureReference(ShareImageTexture2D->TextureReference.TextureReferenceRHI, Resource->TextureRHI);
+		ShowWidget();
+	};
+	ENQUEUE_UNIQUE_RENDER_COMMAND_ONEPARAMETER(
+		ResolveCaptureFrameTexture,
+		TFunction<void(FRHICommandListImmediate&)>, InRenderCommand, RenderCommand,
+		{
+			InRenderCommand(RHICmdList);
+		});
+}
+
 void UFrameCapturerUserWidget::FillImageBrush(const FIntPoint& BufferSize)
 {
-	if (!ShareImageTexture2D.IsValid() ||
+	if (!ShareImageTexture2D.IsValid() || 
 		ShareImageTexture2D->GetSizeX() != BufferSize.X || ShareImageTexture2D->GetSizeY() != BufferSize.Y)
 	{
 		ShareImageTexture2D = UTexture2D::CreateTransient(BufferSize.X, BufferSize.Y);
+		ShareImageTexture2D->bIgnoreStreamingMipBias = true;
+		ShareImageTexture2D->SRGB = true;
 		ShareImageTexture2D->UpdateResource();
 	}
-	Image->SetBrushFromTexture(ShareImageTexture2D.Get());
+
+	FSlateBrush Brush;
+	Brush.SetResourceObject(ShareImageTexture2D.Get());
+	Image->SetBrush(Brush);
 }
 
 void UFrameCapturerUserWidget::DestoryFrameCapturer()

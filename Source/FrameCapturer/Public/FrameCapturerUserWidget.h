@@ -28,6 +28,8 @@ private:
 	void HiddenWidget();
 	void ShowWidget();
 	void UpdateImage(const FCapturedFrame& CapturedFrame);
+	void UpdateImageStackBlur(const FCapturedFrame& CapturedFrame);
+	void UpdateImageGaussianBlur(const FCapturedFrame& CapturedFrame);
 	void FillImageBrush(const FIntPoint &BufferSize);
 
 public:
@@ -43,7 +45,7 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "FrameCapturer")
 	int32 DownSampleNum = 1;
 
-	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "FrameCapturer")
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "FrameCapturer")
 	EFrameCapturerUserWidgetBlurMode BlurMode = EFrameCapturerUserWidgetBlurMode::StackBlur_CPU;
 
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "FrameCapturer")
