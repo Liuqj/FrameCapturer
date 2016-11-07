@@ -67,5 +67,6 @@ private:
 	bool IsShow = false;
 	TUniquePtr<class FFrameCapturer> FrameCapturer;
 	static TWeakObjectPtr<UTexture2D> ShareImageTexture2D;
+	static TWeakObjectPtr<UTextureRenderTarget2D> ShareImageRenderTarget2D;
 	static bool SingletonFlag;
 };

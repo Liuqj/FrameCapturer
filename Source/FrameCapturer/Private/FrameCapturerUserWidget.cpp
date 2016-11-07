@@ -74,7 +74,7 @@ void UFrameCapturerUserWidget::CaptureFrame()
 
 			FrameCapturer = MakeUnique<FFrameCapturer>(ViewportClient->GetGameViewport(), Size, BlurMode == EFrameCapturerUserWidgetBlurMode::StackBlur_CPU, PF_B8G8R8A8, CaptureFrameCount == 1 ? 1 : 3);
 			FrameCapturer->StartCapturingFrames(CaptureFrameCount,
-				[this](FRHICommandListImmediate& RHICmdList, const TArray<FColor>& ColorBuffer, const TRefCountPtr<IPooledRenderTarget>& Texture, int32 Width, int32 Height){
+				[this](FRHICommandListImmediate& RHICmdList, const TArray<FColor>& ColorBuffer, const TRefCountPtr<IPooledRenderTarget>& Texture, int32 Width, int32 Height) {
 				UpdateImage(RHICmdList, ColorBuffer, Texture, Width, Height);
 			}
 			);
@@ -114,7 +114,7 @@ void UFrameCapturerUserWidget::UpdateImage(FRHICommandListImmediate& RHICmdList,
 	{
 		UpdateImageStackBlur(RHICmdList, ColorBuffer, Texture, Width, Height);
 	}
-	else if(BlurMode == EFrameCapturerUserWidgetBlurMode::GaussianBlur_GPU)
+	else if (BlurMode == EFrameCapturerUserWidgetBlurMode::GaussianBlur_GPU)
 	{
 		UpdateImageGaussianBlur(RHICmdList, ColorBuffer, Texture, Width, Height);
 	}
@@ -140,8 +140,7 @@ void UFrameCapturerUserWidget::UpdateImageStackBlur(FRHICommandListImmediate& RH
 
 void UFrameCapturerUserWidget::UpdateImageGaussianBlur(FRHICommandListImmediate& RHICmdList, const TArray<FColor>& ColorBuffer, const TRefCountPtr<IPooledRenderTarget>& Texture, int32 Width, int32 Height)
 {
-	auto Resource = (FTexture2DResource*)(ShareImageTexture2D->Resource);
-	auto Texture2DRHI = (FTexture2DRHIRef&)Texture->GetRenderTargetItem().ShaderResourceTexture;
+	FTextureRenderTargetResource* Resource = (ShareImageRenderTarget2D->GetRenderTargetResource());
 
 	static const FName RendererModuleName("Renderer");
 	IRendererModule* RendererModule = &FModuleManager::GetModuleChecked<IRendererModule>(RendererModuleName);
@@ -158,31 +157,72 @@ void UFrameCapturerUserWidget::UpdateImageGaussianBlur(FRHICommandListImmediate&
 	RendererModule->RenderTargetPoolFindFreeElement(RHICmdList, OutputDesc, ResampleTexturePooledRenderTarget, TEXT("FrameRecorderGaussianTemp"));
 	check(ResampleTexturePooledRenderTarget);
 
-	const FSceneRenderTargetItem& DestRenderTarget = ResampleTexturePooledRenderTarget->GetRenderTargetItem();
+
+	{
+		SetRenderTarget(RHICmdList, Resource->GetRenderTargetTexture(), FTextureRHIRef());
+
+		RHICmdList.SetViewport(0, 0, 0.0f, Width, Height, 1.0f);
+
+		RHICmdList.SetBlendState(TStaticBlendState<>::GetRHI());
+		RHICmdList.SetRasterizerState(TStaticRasterizerState<>::GetRHI());
+		RHICmdList.SetDepthStencilState(TStaticDepthStencilState<false, CF_Always>::GetRHI());
+
+		const ERHIFeatureLevel::Type FeatureLevel = GMaxRHIFeatureLevel;
+
+		TShaderMap<FGlobalShaderType>* ShaderMap = GetGlobalShaderMap(FeatureLevel);
+		TShaderMapRef<FScreenVS> VertexShader(ShaderMap);
+		TShaderMapRef<FScreenPS> PixelShader(ShaderMap);
+
+		static FGlobalBoundShaderState BoundShaderState;
+		SetGlobalBoundShaderState(RHICmdList, FeatureLevel, BoundShaderState, RendererModule->GetFilterVertexDeclaration().VertexDeclarationRHI, *VertexShader, *PixelShader);
+
+		PixelShader->SetParameters(RHICmdList, TStaticSamplerState<SF_Point>::GetRHI(), Texture->GetRenderTargetItem().ShaderResourceTexture);
+
+		RendererModule->DrawRectangle(
+			RHICmdList,
+			0, 0,
+			Width,
+			Height,
+			0, 0,
+			1, 1,
+			FIntPoint(Width, Height),
+			FIntPoint(1, 1),
+			*VertexShader,
+			EDRF_Default);
+	}
 
 	for (int32 i = 0; i < GaussianBlurIteratorCount; i++)
 	{
-		DrawGaussianBlur(RHICmdList, Texture2DRHI, (FTexture2DRHIRef&)DestRenderTarget.TargetableTexture, Width, Height, (BlurKernel >> DownSampleNum) / 3.0);
+		auto TargetableTexture = ResampleTexturePooledRenderTarget->GetRenderTargetItem().TargetableTexture;
+		DrawGaussianBlur(RHICmdList, Resource->GetRenderTargetTexture(), (FTexture2DRHIRef&)TargetableTexture, Width, Height, (BlurKernel >> DownSampleNum) / 3.0);
 	}
-
-	Resource->TextureRHI = Texture2DRHI;
-	//Resource->TextureRHI = (FTexture2DRHIRef&)DestRenderTarget.TargetableTexture;
-	RHIUpdateTextureReference(ShareImageTexture2D->TextureReference.TextureReferenceRHI, Resource->TextureRHI);
 }
 
 void UFrameCapturerUserWidget::FillImageBrush(int32 Width, int32 Height)
 {
-	if (!ShareImageTexture2D.IsValid() || 
-		ShareImageTexture2D->GetSizeX() != Width || ShareImageTexture2D->GetSizeY() != Height)
+	FSlateBrush Brush;
+	if (BlurMode == EFrameCapturerUserWidgetBlurMode::StackBlur_CPU)
 	{
-		ShareImageTexture2D = UTexture2D::CreateTransient(Width, Height);
-		ShareImageTexture2D->bIgnoreStreamingMipBias = true;
-		ShareImageTexture2D->SRGB = true;
-		ShareImageTexture2D->UpdateResource();
+		if (!ShareImageTexture2D.IsValid() ||
+			ShareImageTexture2D->GetSizeX() != Width || ShareImageTexture2D->GetSizeY() != Height)
+		{
+			ShareImageTexture2D = UTexture2D::CreateTransient(Width, Height);
+			ShareImageTexture2D->bIgnoreStreamingMipBias = true;
+			ShareImageTexture2D->UpdateResource();
+		}
+		Brush.SetResourceObject(ShareImageTexture2D.Get());
+	}
+	else
+	{
+		if (!ShareImageRenderTarget2D.IsValid() ||
+			ShareImageRenderTarget2D->SizeX != Width || ShareImageRenderTarget2D->SizeX != Height)
+		{
+			ShareImageRenderTarget2D = UKismetRenderingLibrary::CreateRenderTarget2D(this, Width, Height);
+		}
+		Brush.SetResourceObject(ShareImageRenderTarget2D.Get());
 	}
 
-	FSlateBrush Brush;
-	Brush.SetResourceObject(ShareImageTexture2D.Get());
+
 	Image->SetBrush(Brush);
 }
 
@@ -195,5 +235,6 @@ void UFrameCapturerUserWidget::DestoryFrameCapturer()
 }
 
 TWeakObjectPtr<UTexture2D> UFrameCapturerUserWidget::ShareImageTexture2D;
+TWeakObjectPtr<UTextureRenderTarget2D> UFrameCapturerUserWidget::ShareImageRenderTarget2D;
 
 bool UFrameCapturerUserWidget::SingletonFlag = false;
