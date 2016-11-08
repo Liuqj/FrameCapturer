@@ -2,14 +2,16 @@
 #include "FrameRecorder.h"
 #include "SceneViewport.h"
 
-FViewportReader::FViewportReader(EPixelFormat InPixelFormat, FIntPoint InBufferSize, bool bInReadBack)
+FViewportReader::FViewportReader(EPixelFormat InPixelFormat, FIntPoint InBufferSize, bool bInReadBack, const FTexture2DRHIRef& InProvidedRenderTarget)
 {
 	AvailableEvent = nullptr;
 	PixelFormat = InPixelFormat;
 	bReadBack = bInReadBack;
+	ProvidedRenderTarget = InProvidedRenderTarget;
 
 	Resize(InBufferSize.X, InBufferSize.Y);
 }
+
 
 FViewportReader::~FViewportReader()
 {
@@ -42,7 +44,7 @@ void FViewportReader::BlockUntilAvailable()
 	}
 }
 
-void FViewportReader::ResolveRenderTarget(const FViewportRHIRef& ViewportRHI, const TFunction<void(FRHICommandListImmediate& RHICmdList, const TArray<FColor>&, const TRefCountPtr<IPooledRenderTarget>&, int32, int32)>& Callback)
+void FViewportReader::ResolveRenderTarget(const FViewportRHIRef& ViewportRHI, const TFunction<void(FRHICommandListImmediate& RHICmdList, const TArray<FColor>&, const FTexture2DRHIRef&, int32, int32)>& Callback)
 {
 	static const FName RendererModuleName("Renderer");
 	IRendererModule* RendererModule = &FModuleManager::GetModuleChecked<IRendererModule>(RendererModuleName);
@@ -50,24 +52,32 @@ void FViewportReader::ResolveRenderTarget(const FViewportRHIRef& ViewportRHI, co
 	auto RenderCommand = [=](FRHICommandListImmediate& RHICmdList) {
 		{ 
 			const FIntPoint TargetSize(Width, Height);
+			FTexture2DRHIRef DownSampleTarget;
+			if (!ProvidedRenderTarget.IsValid())
+			{
+				FPooledRenderTargetDesc OutputDesc = FPooledRenderTargetDesc::Create2DDesc(
+					TargetSize,
+					PF_B8G8R8A8,
+					FClearValueBinding::None,
+					TexCreate_None,
+					TexCreate_RenderTargetable,
+					false);
 
-			FPooledRenderTargetDesc OutputDesc = FPooledRenderTargetDesc::Create2DDesc(
-				TargetSize,
-				PF_B8G8R8A8,
-				FClearValueBinding::None,
-				TexCreate_None,
-				TexCreate_RenderTargetable,
-				false);
+				TRefCountPtr<IPooledRenderTarget> FrameRecorderDownSample;
+				RendererModule->RenderTargetPoolFindFreeElement(RHICmdList, OutputDesc, FrameRecorderDownSample, TEXT("FrameRecorderDownSample"));
+				check(FrameRecorderDownSample);
 
-			TRefCountPtr<IPooledRenderTarget> FrameRecorderDownSample;
-			RendererModule->RenderTargetPoolFindFreeElement(RHICmdList, OutputDesc, FrameRecorderDownSample, TEXT("FrameRecorderDownSample"));
-			check(FrameRecorderDownSample);
-
-			const FSceneRenderTargetItem& DestRenderTarget = FrameRecorderDownSample->GetRenderTargetItem();
+				const FSceneRenderTargetItem& DestRenderTarget = FrameRecorderDownSample->GetRenderTargetItem();
+				DownSampleTarget = (FTexture2DRHIRef&)DestRenderTarget.TargetableTexture;
+			}
+			else
+			{
+				DownSampleTarget = ProvidedRenderTarget;
+			}
 
 			// DownSample
 			{
-				SetRenderTarget(RHICmdList, DestRenderTarget.TargetableTexture, FTextureRHIRef());
+				SetRenderTarget(RHICmdList, DownSampleTarget, FTextureRHIRef());
 
 				RHICmdList.SetViewport(0, 0, 0.0f, TargetSize.X, TargetSize.Y, 1.0f);
 
@@ -119,18 +129,10 @@ void FViewportReader::ResolveRenderTarget(const FViewportRHIRef& ViewportRHI, co
 			TArray<FColor> ColorDataBuffer;
 			if (bReadBack)
 			{
-				RHICmdList.ReadSurfaceData(DestRenderTarget.TargetableTexture, Rect, ColorDataBuffer, FReadSurfaceDataFlags());
-			}
-			else
-			{
-				RHICmdList.CopyToResolveTarget(
-					DestRenderTarget.TargetableTexture,
-					DestRenderTarget.ShaderResourceTexture,
-					false,
-					FResolveParams());
+				RHICmdList.ReadSurfaceData(DownSampleTarget, Rect, ColorDataBuffer, FReadSurfaceDataFlags());
 			}
 
-			Callback(RHICmdList, ColorDataBuffer, FrameRecorderDownSample, Rect.Width(), Rect.Height());
+			Callback(RHICmdList, ColorDataBuffer, DownSampleTarget, Rect.Width(), Rect.Height());
 
 			AvailableEvent->Trigger();
 		}
@@ -144,10 +146,9 @@ void FViewportReader::ResolveRenderTarget(const FViewportRHIRef& ViewportRHI, co
 		});
 }
 
-FFrameCapturer::FFrameCapturer(FSceneViewport* Viewport, FIntPoint DesiredBufferSize, bool bInReadBack, EPixelFormat InPixelFormat, uint32 NumSurfaces)
+FFrameCapturer::FFrameCapturer(FSceneViewport* Viewport, FIntPoint DesiredBufferSize, bool bInReadBack, const FTexture2DRHIRef& InProvidedRenderTarget, EPixelFormat InPixelFormat /*= PF_B8G8R8A8*/, uint32 NumSurfaces /*= 2 */)
 {
 	bReadBack = bInReadBack;
-
 	State = EFrameGrabberState::Inactive;
 
 	TargetSize = DesiredBufferSize;
@@ -190,7 +191,7 @@ FFrameCapturer::FFrameCapturer(FSceneViewport* Viewport, FIntPoint DesiredBuffer
 	Surfaces.Reserve(NumSurfaces);
 	for (uint32 Index = 0; Index < NumSurfaces; ++Index)
 	{
-		Surfaces.Emplace(InPixelFormat, DesiredBufferSize, bReadBack);
+		Surfaces.Emplace(InPixelFormat, DesiredBufferSize, bReadBack, InProvidedRenderTarget);
 		Surfaces.Last().Surface.SetCaptureRect(CaptureRect);
 	}
 }
@@ -200,7 +201,7 @@ FFrameCapturer::~FFrameCapturer()
 	StopCapturingFrames();
 }
 
-void FFrameCapturer::StartCapturingFrames(uint32 InFrameCount, TFunction<void(FRHICommandListImmediate&, const TArray<FColor>&, const TRefCountPtr<IPooledRenderTarget>&, int32, int32)>&& InFrameReady)
+void FFrameCapturer::StartCapturingFrames(uint32 InFrameCount, TFunction<void(FRHICommandListImmediate&, const TArray<FColor>&, const FTexture2DRHIRef&, int32, int32)>&& InFrameReady)
 {
 	if (!ensure(State == EFrameGrabberState::Inactive))
 	{
@@ -284,14 +285,14 @@ void FFrameCapturer::OnSlateWindowRendered(SWindow& SlateWindow, void* ViewportR
 	ThisFrameTarget->Surface.BlockUntilAvailable();
 	ThisFrameTarget->Surface.Initialize();
 
-	Surfaces[ThisCaptureIndex].Surface.ResolveRenderTarget(*RHIViewport, [=](FRHICommandListImmediate& RHICmdList, const TArray<FColor>& ColorBuffer, const TRefCountPtr<IPooledRenderTarget>& Texture, int32 Width, int32 Height) {
+	Surfaces[ThisCaptureIndex].Surface.ResolveRenderTarget(*RHIViewport, [=](FRHICommandListImmediate& RHICmdList, const TArray<FColor>& ColorBuffer, const FTexture2DRHIRef& Texture, int32 Width, int32 Height) {
 		OnFrameReady_RenderThread(RHICmdList, ThisCaptureIndex, ColorBuffer, Texture, Width, Height);
 	});
 
 	CurrentFrameIndex = (CurrentFrameIndex + 1) % Surfaces.Num();
 }
 
-void FFrameCapturer::OnFrameReady_RenderThread(FRHICommandListImmediate& RHICmdList, int32 BufferIndex, const TArray<FColor>& ColorBuffer, const TRefCountPtr<IPooledRenderTarget>& Texture, int32 Width, int32 Height)
+void FFrameCapturer::OnFrameReady_RenderThread(FRHICommandListImmediate& RHICmdList, int32 BufferIndex, const TArray<FColor>& ColorBuffer, const FTexture2DRHIRef& Texture, int32 Width, int32 Height)
 {
 	FrameReady(RHICmdList, ColorBuffer, Texture, Width, Height);
 }
