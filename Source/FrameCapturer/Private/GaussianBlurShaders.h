@@ -1,5 +1,7 @@
 #pragma once
 
+#if ExperimentalGPUBlur
+
 class FHorizontalGaussianBlurPS : public FGlobalShader
 {
 	DECLARE_EXPORTED_SHADER_TYPE(FHorizontalGaussianBlurPS, Global, FRAMECAPTURER_API);
@@ -39,4 +41,7 @@ private:
 	FShaderResourceParameter InTextureSampler;
 	FShaderParameter InSamplerOffset;
 };
+#endif
+// TODO : Maybe try FCanvas::DrawItem and Material
 void DrawGaussianBlur(FRHICommandList& RHICmdList, const FTexture2DRHIRef& InOutTexture, const FTexture2DRHIRef& TempTarget, int32 Width, int32 Height, float Kernal);
+

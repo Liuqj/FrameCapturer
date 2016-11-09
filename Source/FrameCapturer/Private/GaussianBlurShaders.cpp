@@ -1,6 +1,8 @@
 #include "FrameCapturerPrivatePCH.h"
 #include "GaussianBlurShaders.h"
 
+#if ExperimentalGPUBlur
+
 IMPLEMENT_SHADER_TYPE(, FHorizontalGaussianBlurPS, TEXT("HorizontalGaussianBlurPixelShader"), TEXT("Main"), SF_Pixel);
 IMPLEMENT_SHADER_TYPE(, FVerticalGaussianBlurPS, TEXT("VerticalGaussianBlurPixelShader"), TEXT("Main"), SF_Pixel);
 
@@ -49,9 +51,11 @@ bool FVerticalGaussianBlurPS::Serialize(FArchive& Ar)
 	Ar << InSamplerOffset;
 	return bShaderHasOutdatedParameters;
 }
+#endif
 
 void DrawGaussianBlur(FRHICommandList& RHICmdList, const FTexture2DRHIRef& InOutTexture, const FTexture2DRHIRef& TempTarget, int32 Width, int32 Height, float Kernal)
 {
+#if ExperimentalGPUBlur
 	static const FName RendererModuleName("Renderer");
 	IRendererModule* RendererModule = &FModuleManager::GetModuleChecked<IRendererModule>(RendererModuleName);
 	
@@ -118,4 +122,5 @@ void DrawGaussianBlur(FRHICommandList& RHICmdList, const FTexture2DRHIRef& InOut
 			*VertexShader,
 			EDRF_Default);
 	}
+#endif
 }

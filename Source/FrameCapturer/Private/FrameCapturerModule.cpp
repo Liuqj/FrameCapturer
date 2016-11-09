@@ -12,6 +12,7 @@ public:
 
 	virtual void StartupModule() override
 	{
+#if ExperimentalGPUBlur
 		FString PluginShadersDirectory = FPaths::Combine(*FPaths::EnginePluginsDir(), TEXT("/Kingsoft/FrameCapturer/Shaders"));
 		FString EngineShadersDirectory = FPaths::Combine(*FPaths::EngineDir(), TEXT("Shaders"));
 
@@ -34,10 +35,12 @@ public:
 				UE_LOG(LogFrameCapturer, Warning, TEXT("Could not copy %s to %s!"), *GameShaderFullPath, *EngineShaderFullPath);
 			}
 		}
+#endif
 	}
 
 	virtual void ShutdownModule() override
 	{
+#if ExperimentalGPUBlur
 		FString EngineShadersDirectory = FPaths::Combine(*FPaths::EngineDir(), TEXT("Shaders"));
 		IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
 
@@ -57,6 +60,7 @@ public:
 		}
 
 		delete ShaderFiles;
+#endif
 	}
 
 	FShaderFileVisitor* ShaderFiles;

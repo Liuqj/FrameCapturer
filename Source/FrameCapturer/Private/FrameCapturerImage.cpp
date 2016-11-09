@@ -1,14 +1,12 @@
 #include "FrameCapturerPrivatePCH.h"
 #include "FrameCapturerImage.h"
-#include "FrameRecorder.h"
+#include "FrameCapturer.h"
 #include "StackBlur.h"
 #include "GaussianBlurShaders.h"
 
 void UFrameCapturerImage::OnWidgetRebuilt()
 {
 	Super::OnWidgetRebuilt();
-
-	HiddenWidget();
 
 	if (!ManualCapture)
 	{
@@ -19,32 +17,6 @@ void UFrameCapturerImage::OnWidgetRebuilt()
 void UFrameCapturerImage::CaptureFrame()
 {
 	MyFrameCapturerImage->StartCaptureFrame(GetWorld());
-}
-
-void UFrameCapturerImage::HiddenWidget()
-{
-	UPanelWidget* Parent = GetParent();
-	if (Parent)
-	{
-		Parent->SetVisibility(ESlateVisibility::Hidden);
-	}
-	else
-	{
-		SetVisibility(ESlateVisibility::Hidden);
-	}
-}
-
-void UFrameCapturerImage::ShowWidget()
-{
-	UPanelWidget* Parent = GetParent();
-	if (Parent)
-	{
-		Parent->SetVisibility(ESlateVisibility::Visible);
-	}
-	else
-	{
-		SetVisibility(ESlateVisibility::Visible);
-	}
 }
 
 TSharedRef<SWidget> UFrameCapturerImage::RebuildWidget()
@@ -70,7 +42,6 @@ void UFrameCapturerImage::SynchronizeProperties()
 		MyFrameCapturerImage->SetGaussianBlurIteratorCount(GaussianBlurIteratorCount);
 		MyFrameCapturerImage->SetImage(ImageBinding);
 		MyFrameCapturerImage->SetColorAndOpacity(ColorAndOpacityBinding);
-		MyFrameCapturerImage->SetOnCaptured(BIND_UOBJECT_DELEGATE(FSimpleDelegate, ShowWidget));
 		MyFrameCapturerImage->SetOnMouseButtonDown(BIND_UOBJECT_DELEGATE(FPointerEventHandler, HandleMouseButtonDown));
 	}
 }

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "FrameRecorder.h"
+#include "FrameCapturer.h"
 #include "SFrameCapturerImage.h"
 #include "FrameCapturerImage.generated.h"
 
@@ -16,10 +16,6 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "FrameCapturer")
 	void CaptureFrame();
-
-private:
-	void HiddenWidget();
-	void ShowWidget();
 
 public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "FrameCapturer")

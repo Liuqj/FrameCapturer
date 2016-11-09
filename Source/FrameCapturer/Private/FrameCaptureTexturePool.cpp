@@ -77,6 +77,12 @@ void FFrameCaptureTexturePool::AddReferencedObjects(FReferenceCollector& Collect
 		auto Item = Texture2DItem->GetItem();
 		Collector.AddReferencedObject(Item);
 	}
+
+	for (auto& RT2DItem : RenderTarget2DPool)
+	{
+		auto Item = RT2DItem->GetItem();
+		Collector.AddReferencedObject(Item);
+	}
 }
 
 FFrameCapturePooledRenderTarget2DItem::FFrameCapturePooledRenderTarget2DItem(uint32 Width, uint32 Height)
