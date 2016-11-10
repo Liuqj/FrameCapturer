@@ -117,7 +117,7 @@ class FSceneViewport* Viewport,
 	bool bInReadBack,
 	const FTexture2DRHIRef& InProvidedRenderTarget,
 	EPixelFormat InPixelFormat /*= PF_B8G8R8A8 */)
-	: Surface(InPixelFormat, DesiredBufferSize, bReadBack, InProvidedRenderTarget)
+	: Surface(InPixelFormat, DesiredBufferSize, bInReadBack, InProvidedRenderTarget)
 {
 	bReadBack = bInReadBack;
 	State = EFrameGrabberState::Inactive;
