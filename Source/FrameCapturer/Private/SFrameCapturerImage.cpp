@@ -280,4 +280,5 @@ void SFrameCapturerImage::SetGaussianBlurIteratorCount(int32 InGaussianBlurItera
 	GaussianBlurIteratorCount = InGaussianBlurIteratorCount;
 }
 
-TSharedPtr<ICustomSlateElement, ESPMode::ThreadSafe> SFrameCapturerImage::Drawer = MakeShared<FScreenCaptureElement, ESPMode::ThreadSafe>();
+// TODO 无法体面的删掉 Drawer，干脆自暴自弃
+TSharedPtr<ICustomSlateElement, ESPMode::ThreadSafe> SFrameCapturerImage::Drawer = TSharedPtr<FScreenCaptureElement, ESPMode::ThreadSafe>();
