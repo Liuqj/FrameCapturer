@@ -64,8 +64,8 @@ void SFrameCapturerImageProxy::UpdateImageGaussianBlur(FRHICommandListImmediate&
 class FScreenCaptureElement : public ICustomSlateElement
 {
 public:
-	FScreenCaptureElement(){}
-	~FScreenCaptureElement() {}
+	FScreenCaptureElement();
+	~FScreenCaptureElement();
 	void SetFrameCapturer(TSharedPtr<FFrameCapturer> InFrameCapturer);
 private:
 	virtual void DrawRenderThread(FRHICommandListImmediate& RHICmdList, const void* InWindowBackBuffer) override;
@@ -77,6 +77,16 @@ private:
 	SFrameCapturerImageProxy ProxyData;
 };
 
+
+FScreenCaptureElement::FScreenCaptureElement()
+{
+
+}
+
+FScreenCaptureElement::~FScreenCaptureElement()
+{
+
+}
 
 void FScreenCaptureElement::SetFrameCapturer(TSharedPtr<FFrameCapturer> InFrameCapturer)
 {
@@ -281,4 +291,4 @@ void SFrameCapturerImage::SetGaussianBlurIteratorCount(int32 InGaussianBlurItera
 }
 
 // TODO 无法体面的删掉 Drawer，干脆自暴自弃
-TSharedPtr<ICustomSlateElement, ESPMode::ThreadSafe> SFrameCapturerImage::Drawer = TSharedPtr<FScreenCaptureElement, ESPMode::ThreadSafe>();
+TSharedPtr<ICustomSlateElement, ESPMode::ThreadSafe> SFrameCapturerImage::Drawer = MakeShareable<FScreenCaptureElement>(new FScreenCaptureElement());
