@@ -175,13 +175,9 @@ int32 SFrameCapturerImage::OnPaint(const FPaintArgs& Args, const FGeometry& Allo
 
 				StaticCastSharedPtr<FScreenCaptureElement>(Drawer)->SetFrameCapturer(FrameCapturer);
 
-				TWeakPtr<SFrameCapturerImage> ClosureWeakThis = SharedThis(This);
 
 				FrameCapturer->PrepareCapturingFrames_MainThread(CaptureFrameCount.Get(),
 					[=](FRHICommandListImmediate& RHICmdList, const TArray<FColor>& ColorBuffer, const FTexture2DRHIRef& Texture, int32 Width, int32 Height) {
-					auto This = ClosureWeakThis.Pin();
-					if (This.IsValid())
-					{
 						SFrameCapturerImageProxy Proxy
 						{
 							BlurKernel.Get(),
@@ -194,7 +190,6 @@ int32 SFrameCapturerImage::OnPaint(const FPaintArgs& Args, const FGeometry& Allo
 							ImageRenderTarget2D
 						};
 						Proxy.UpdateImage(RHICmdList, ColorBuffer, Texture, Width, Height);
-					}
 				}
 				);
 			}

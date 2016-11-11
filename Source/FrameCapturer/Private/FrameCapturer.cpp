@@ -211,8 +211,6 @@ void FFrameCapturer::StartCapture_RenderThread(FRHICommandListImmediate& RHICmdL
 
 	RemainFrameCount--;
 
-	TWeakPtr<FFrameCapturer> ClosureWeakThis = SharedThis(this);
-
 	Surface.ResolveRenderTarget_RenderThread(
 		RHICmdList,
 		BackBufferRHI,
