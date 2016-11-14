@@ -4,23 +4,7 @@
 #include "BlurModeEnum.h"
 #include "FrameCaptureTexturePool.h"
 
-struct SFrameCapturerImageProxy
-{
-	int32 BlurKernel;
-	int32 DownSampleNum;
-	int32 CaptureFrameCount;
-	EFrameCapturerUserWidgetBlurMode BlurMode;
-	int32 StackBlurParallelCore;
-	int32 GaussianBlurIteratorCount;
-	TRefCountPtr<FFrameCapturePooledTexture2DItem> ImageTexture2D;
-	TRefCountPtr<FFrameCapturePooledRenderTarget2DItem> ImageRenderTarget2D;
-
-	void UpdateImage(FRHICommandListImmediate& RHICmdList, const TArray<FColor>& ColorBuffer, const FTexture2DRHIRef& Texture, int32 Width, int32 Height);
-	void UpdateImageStackBlur(FRHICommandListImmediate& RHICmdList, const TArray<FColor>& ColorBuffer, const FTexture2DRHIRef& Texture, int32 Width, int32 Height);
-	void UpdateImageGaussianBlur(FRHICommandListImmediate& RHICmdList, const TArray<FColor>& ColorBuffer, const FTexture2DRHIRef& Texture, int32 Width, int32 Height);
-};
-
-class SFrameCapturerImage : public SImage
+class SFrameCapturerImage : public SImage, public FGCObject
 {
 	SLATE_BEGIN_ARGS(SFrameCapturerImage)
 		: _BlurKernel(3)
@@ -46,10 +30,16 @@ public:
 	UWorld* GetWorld();
 
 	virtual int32 OnPaint(const FPaintArgs& Args, const FGeometry& AllottedGeometry, const FSlateRect& MyClippingRect, FSlateWindowElementList& OutDrawElements, int32 LayerId, const FWidgetStyle& InWidgetStyle, bool bParentEnabled) const override;
+
 	virtual void Tick(const FGeometry& AllottedGeometry, const double InCurrentTime, const float InDeltaTime) override;
 
+	virtual void AddReferencedObjects(FReferenceCollector& Collector) override;
 private:
-	void FillImageBrush(int32 Width, int32 Height);
+	void FillImageBrush(int32 Width, int32 Height) const;
+	void ClearImageBrush() const;
+	void InitBrushAndFrameCapturer(const FGeometry &AllottedGeometry) const;
+	void OnPaintFrameCapter(FSlateWindowElementList& OutDrawElements, int32 LayerId) const;
+	void OnPaintImage(bool bParentEnabled, const FWidgetStyle &InWidgetStyle, FSlateWindowElementList& OutDrawElements, int32 LayerId, const FGeometry &AllottedGeometry, const FSlateRect& MyClippingRect) const;
 public:
 	void SetBlurKernel(int32 InBlurKernel);
 	void SetDownSampleNum(int32 InDownSampleNum);
@@ -57,6 +47,7 @@ public:
 	void SetBlurMode(EFrameCapturerUserWidgetBlurMode InMode);
 	void SetStackBlurParallelCore(int32 InStackBlurParallelCore);
 	void SetGaussianBlurIteratorCount(int32 InGaussianBlurIteratorCount);
+	void SetOptionalEffectBrush(FSlateBrush* InBrush);
 private:
 	TAttribute<int32> BlurKernel = 3;
 	TAttribute<int32> DownSampleNum = 1;
@@ -64,11 +55,17 @@ private:
 	TAttribute<EFrameCapturerUserWidgetBlurMode> BlurMode = EFrameCapturerUserWidgetBlurMode::StackBlur_CPU;
 	TAttribute<int32> StackBlurParallelCore = 4;
 	TAttribute<int32> GaussianBlurIteratorCount = 1;
-	TRefCountPtr<FFrameCapturePooledTexture2DItem> ImageTexture2D;
-	TRefCountPtr<FFrameCapturePooledRenderTarget2DItem> ImageRenderTarget2D;
-	mutable TSharedPtr<class FFrameCapturer> FrameCapturer;
-	static TSharedPtr<ICustomSlateElement, ESPMode::ThreadSafe> Drawer;
+	FSlateBrush* OptionalEffectBrush = nullptr;
+	mutable TRefCountPtr<FFrameCapturePooledTexture2DItem> ImageTexture2D;
+	mutable TRefCountPtr<FFrameCapturePooledRenderTarget2DItem> ImageRenderTarget2D;
 	TWeakObjectPtr<UWorld> World;
 
-	mutable bool WillCapture = false;
+	mutable UMaterialInstanceDynamic* MaterialDynamic = nullptr;
+
+	mutable TSharedPtr<class FFrameCapturer> FrameCapturer;
+	mutable bool WantInitialize = false;
+
+public:
+	static int32 CacheFrameCapturerSlateCount;
+	static int32 CurrentFrameCapturerSlateCount;
 };

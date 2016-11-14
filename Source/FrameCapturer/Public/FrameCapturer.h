@@ -54,7 +54,6 @@ private:
 	FFrameCapturer(const FFrameCapturer&);
 	FFrameCapturer& operator=(const FFrameCapturer&);
 
-	FViewportRHIRef ViewportResourceCache;
 	TWeakPtr<SWindow> CaptureWindow;
 
 	FViewportReader Surface;

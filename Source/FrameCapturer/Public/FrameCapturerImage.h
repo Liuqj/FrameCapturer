@@ -18,6 +18,10 @@ public:
 	void CaptureFrame();
 
 public:
+
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "FrameCapturer")
+	FSlateBrush OptionalEffectBrush;
+
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "FrameCapturer")
 	bool ManualCapture = false;
 

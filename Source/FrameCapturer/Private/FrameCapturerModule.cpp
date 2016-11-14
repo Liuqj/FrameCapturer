@@ -1,6 +1,10 @@
 #include "FrameCapturerPrivatePCH.h"
 #include "ShaderFileVisitor.h"
+#include "FrameCapturerSettings.h"
+
 DEFINE_LOG_CATEGORY(LogFrameCapturer);
+
+#define LOCTEXT_NAMESPACE "FrameCapturer"
 
 class FRAMECAPTURER_API FFrameCapturerModule : public IModuleInterface
 {
@@ -12,6 +16,22 @@ public:
 
 	virtual void StartupModule() override
 	{
+		if (ISettingsModule* SettingsModule = FModuleManager::GetModulePtr<ISettingsModule>("Settings"))
+		{
+			SettingsModule->RegisterSettings("Project", "Plugins", "FrameCapturer",
+				LOCTEXT("RuntimeSettingsName", "FrameCapturer"),
+				LOCTEXT("RuntimeSettingsDescription", "Configure the FrameCapturer plugin"),
+				GetMutableDefault<UFrameCapturerSettings>()
+				);
+		}
+
+		SlateImageDelegateHandle = FSlateApplication::Get().GetRenderer()->OnSlateWindowRendered().AddLambda([](SWindow&, void*) {
+			SFrameCapturerImage::CacheFrameCapturerSlateCount = SFrameCapturerImage::CurrentFrameCapturerSlateCount;
+			SFrameCapturerImage::CurrentFrameCapturerSlateCount = 0;
+			
+		});
+
+
 #if ExperimentalGPUBlur
 		FString PluginShadersDirectory = FPaths::Combine(*FPaths::EnginePluginsDir(), TEXT("/Kingsoft/FrameCapturer/Shaders"));
 		FString EngineShadersDirectory = FPaths::Combine(*FPaths::EngineDir(), TEXT("Shaders"));
@@ -40,6 +60,11 @@ public:
 
 	virtual void ShutdownModule() override
 	{
+		if (FSlateApplication::IsInitialized())
+		{
+			FSlateApplication::Get().GetRenderer()->OnSlateWindowRendered().Remove(SlateImageDelegateHandle);
+		}
+
 #if ExperimentalGPUBlur
 		FString EngineShadersDirectory = FPaths::Combine(*FPaths::EngineDir(), TEXT("Shaders"));
 		IPlatformFile& PlatformFile = FPlatformFileManager::Get().GetPlatformFile();
@@ -63,7 +88,9 @@ public:
 #endif
 	}
 
+	FDelegateHandle SlateImageDelegateHandle;
 	FShaderFileVisitor* ShaderFiles;
 };
+#undef LOCTEXT_NAMESPACE
 
 IMPLEMENT_MODULE(FFrameCapturerModule, FrameCapturer)

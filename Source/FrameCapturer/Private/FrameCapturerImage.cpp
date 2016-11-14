@@ -30,8 +30,9 @@ void UFrameCapturerImage::SynchronizeProperties()
 	Super::SynchronizeProperties();
 
 	TAttribute<FSlateColor> ColorAndOpacityBinding = OPTIONAL_BINDING(FSlateColor, ColorAndOpacity);
-	TAttribute<const FSlateBrush*> ImageBinding = OPTIONAL_BINDING_CONVERT(FSlateBrush, Brush, const FSlateBrush*, ConvertImage);
 
+	TAttribute<const FSlateBrush*> ImageBinding = OPTIONAL_BINDING_CONVERT(FSlateBrush, Brush, const FSlateBrush*, ConvertImage);
+	
 	if (MyFrameCapturerImage.IsValid())
 	{
 		MyFrameCapturerImage->SetBlurKernel(BlurKernel);
@@ -41,6 +42,8 @@ void UFrameCapturerImage::SynchronizeProperties()
 		MyFrameCapturerImage->SetStackBlurParallelCore(StackBlurParallelCore);
 		MyFrameCapturerImage->SetGaussianBlurIteratorCount(GaussianBlurIteratorCount);
 		MyFrameCapturerImage->SetImage(ImageBinding);
+		MyFrameCapturerImage->SetOptionalEffectBrush(&OptionalEffectBrush);
+
 		MyFrameCapturerImage->SetColorAndOpacity(ColorAndOpacityBinding);
 		MyFrameCapturerImage->SetOnMouseButtonDown(BIND_UOBJECT_DELEGATE(FPointerEventHandler, HandleMouseButtonDown));
 	}
