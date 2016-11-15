@@ -18,7 +18,7 @@
 		{
 			"Name": "FrameCapturer",
 			"Type": "Runtime",
-			"LoadingPhase": "PostConfigInit"
+			"LoadingPhase": "PostEngineInit"
 		}
 	]
 }

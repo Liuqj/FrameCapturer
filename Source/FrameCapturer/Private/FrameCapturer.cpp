@@ -187,11 +187,7 @@ void FFrameCapturer::StopCapturingFrames()
 	State = EFrameGrabberState::Inactive;
 
 #if PLATFORM_ANDROID
-	void* ViewportResource = FSlateApplication::Get().GetRenderer()->GetViewportResource(*CaptureWindow.Pin());
-	if (ViewportResource)
-	{
-		RHISetPendingRequestAndroidBackBuffer((*(FViewportRHIRef*)ViewportResource).GetReference(), false);
-	}
+	RHISetPendingRequestAndroidBackBuffer(CacheViewportRHI, false);
 #endif
 }
 
