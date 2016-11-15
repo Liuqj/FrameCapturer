@@ -157,7 +157,8 @@ void FFrameCapturer::PrepareCapturingFrames_MainThread(uint32 InFrameCount, TFun
 		if (ViewportResource)
 		{
 #if PLATFORM_ANDROID
-			RHISetPendingRequestAndroidBackBuffer(*((FViewportRHIRef*)ViewportResource), true);
+			CacheViewportRHI = (*(FViewportRHIRef*)ViewportResource).GetReference();
+			RHISetPendingRequestAndroidBackBuffer(CacheViewportRHI, true);
 #endif
 		}
 	}
@@ -189,7 +190,7 @@ void FFrameCapturer::StopCapturingFrames()
 	void* ViewportResource = FSlateApplication::Get().GetRenderer()->GetViewportResource(*CaptureWindow.Pin());
 	if (ViewportResource)
 	{
-		RHISetPendingRequestAndroidBackBuffer(*(FViewportRHIRef*)ViewportResource, false);
+		RHISetPendingRequestAndroidBackBuffer((*(FViewportRHIRef*)ViewportResource).GetReference(), false);
 	}
 #endif
 }
@@ -202,13 +203,9 @@ uint32 FFrameCapturer::GetRemainFrameCount()
 void FFrameCapturer::StartCapture_RenderThread(FRHICommandListImmediate& RHICmdList, const FTexture2DRHIRef BackBufferRHI)
 {
 #if PLATFORM_ANDROID
-	void* ViewportResource = FSlateApplication::Get().GetRenderer()->GetViewportResource(*CaptureWindow.Pin());
-	if (ViewportResource)
+	if (!RHIIsRequestAndroidBackBuffer(CacheViewportRHI))
 	{
-		if (!RHIIsRequestAndroidBackBuffer(((FViewportRHIRef*)ViewportResource)->GetReference()))
-		{
-			return;
-		}
+		return;
 	}
 #endif
 	if (RemainFrameCount == 0)

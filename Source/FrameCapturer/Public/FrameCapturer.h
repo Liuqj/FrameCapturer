@@ -55,6 +55,7 @@ private:
 	FFrameCapturer& operator=(const FFrameCapturer&);
 
 	TWeakPtr<SWindow> CaptureWindow;
+	FRHIViewport* CacheViewportRHI;
 
 	FViewportReader Surface;
 	uint32 RemainFrameCount = 0;
