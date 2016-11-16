@@ -33,7 +33,7 @@ public:
 
 
 #if ExperimentalGPUBlur
-		FString PluginShadersDirectory = FPaths::Combine(*FPaths::EnginePluginsDir(), TEXT("/Kingsoft/FrameCapturer/Shaders"));
+		FString PluginShadersDirectory = FPaths::Combine(*FPaths::EnginePluginsDir(), TEXT("/RealGameLab/FrameCapturer/Shaders"));
 		FString EngineShadersDirectory = FPaths::Combine(*FPaths::EngineDir(), TEXT("Shaders"));
 
 		ShaderFiles = new FShaderFileVisitor();
