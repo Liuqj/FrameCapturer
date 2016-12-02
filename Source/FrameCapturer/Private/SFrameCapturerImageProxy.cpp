@@ -1,4 +1,4 @@
-#include "FrameCapturerPrivatePCH.h"
+#include "SFrameCapturerImageProxy.h"
 #include "SFrameCapturerImage.h"
 #include "GaussianBlurShaders.h"
 #include "FrameCapturer.h"

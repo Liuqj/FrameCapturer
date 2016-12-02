@@ -1,4 +1,3 @@
-#include "FrameCapturerPrivatePCH.h" 
 bool FShaderFileVisitor::Visit(const TCHAR* FilenameOrDirectory, bool bIsDirectory)
 {
 	if (!bIsDirectory)

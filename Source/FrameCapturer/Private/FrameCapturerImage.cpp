@@ -1,4 +1,3 @@
-#include "FrameCapturerPrivatePCH.h"
 #include "FrameCapturerImage.h"
 #include "FrameCapturer.h"
 #include "StackBlur.h"

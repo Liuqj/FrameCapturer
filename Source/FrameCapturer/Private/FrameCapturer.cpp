@@ -1,4 +1,3 @@
-#include "FrameCapturerPrivatePCH.h"
 #include "FrameCapturer.h"
 #include "SceneViewport.h"
 #include "UnrealTemplate.h"

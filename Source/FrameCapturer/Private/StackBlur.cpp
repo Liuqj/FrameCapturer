@@ -1,4 +1,3 @@
-#include "FrameCapturerPrivatePCH.h"
 #include "StackBlur.h"
 
 static uint16 const stackblur_mul[255] =

@@ -1,10 +1,9 @@
-#include "FrameCapturerPrivatePCH.h"
+#include "FrameCaptureElement.h"
 #include "SFrameCapturerImage.h"
 #include "GaussianBlurShaders.h"
 #include "FrameCapturer.h"
 #include "StackBlur.h"
 #include "FrameCapturerSettings.h"
-#include "FrameCaptureElement.h"
 
 FFrameCaptureElement::FFrameCaptureElement()
 {

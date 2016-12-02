@@ -1,4 +1,3 @@
-#include "FrameCapturerPrivatePCH.h"
 #include "FrameCaptureTexturePool.h"
 
 FFrameCapturePooledTexture2DItem::FFrameCapturePooledTexture2DItem(uint32 Width, uint32 Height)

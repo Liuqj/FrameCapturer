@@ -1,4 +1,3 @@
-#include "FrameCapturerPrivatePCH.h"
 #include "GaussianBlurShaders.h"
 
 #if ExperimentalGPUBlur
