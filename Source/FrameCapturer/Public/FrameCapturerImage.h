@@ -2,6 +2,7 @@
 
 #include "FrameCapturer.h"
 #include "SFrameCapturerImage.h"
+#include "Components/Image.h"
 #include "FrameCapturerImage.generated.h"
 
 UCLASS()

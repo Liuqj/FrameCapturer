@@ -4,6 +4,7 @@
 #include "BlurModeEnum.h"
 #include "FrameCaptureTexturePool.h"
 #include "SFrameCapturerImageProxy.h"
+#include "FrameCapturer.h"
 
 class FFrameCaptureElement : public ICustomSlateElement
 {
